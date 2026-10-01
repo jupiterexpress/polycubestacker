@@ -322,7 +322,7 @@ const CFG = {
     pitchMin: 0.14, pitchMax: 1.12,         // radians — keeps the view from flipping and from looking straight down
     sens: 0.0075, inertia: 0.9,
     zoomMin: 0.55, zoomMax: 1.9,
-    frame: { x: 0.98, top: 0.6, bottom: -0.7 },   // clear screen area to fit the build + piece path into (-1..1)
+    ring: 0.6,                               // camera fit: share of the area pieces can travel that must stay on screen (0 = off; lower = closer)
   },
   spawnDelay: 0.25,                         // seconds before the next piece appears
 };
@@ -716,13 +716,15 @@ const Cam = {
     const b = World.bounds;
     const span = Math.max(b.maxX - b.minX + 1, b.maxZ - b.minZ + 1);
     const h = b.topY + 1;
-    // frame the structure AND the current piece's whole travel path, so the piece never leaves the view
-    const boxes = this.frameBoxes();
-    const all = boxes[0].clone(); for (const bx of boxes) all.union(bx);
-    const want = all.getCenter(new THREE.Vector3());
+    // aim between the plate and where pieces hover, so both the build and the piece sit in view
+    const want = new THREE.Vector3((b.minX + b.maxX) / 2, Math.max(0.8, (h + CFG.move.hoverGap + 1.5) * 0.5), (b.minZ + b.maxZ) / 2);
     const k = 1 - Math.exp(-3 * dt);
     this.target.lerp(want, k);
-    const wantDist = this.fitDistance(boxes, this.target) * this.zoom;
+    // Distance depends only on the structure (never on the current piece), so it can't jump between drops.
+    // It is the larger of the old growth rule and a fit that keeps any piece path on screen: a ring around
+    // the structure padded by how far pieces can travel past it, from the plate up to hover height.
+    const base = (CFG.camera.dist + Math.max(0, Math.max(span - 5, h - 2)) * 0.9) * (camera.aspect < 0.8 ? 1.2 : 1);
+    const wantDist = (CFG.camera.ring > 0 ? Math.max(base, this.ringFit(b, this.target)) : base) * this.zoom;
     this.dist += (wantDist - this.dist) * k;
     const cp = Math.cos(this.pitch);
     camera.position.set(
@@ -738,40 +740,27 @@ const Cam = {
     const sc = topLight.shadow.camera;
     if (sc.right !== ext || sc.far !== h + 60) { sc.left = -ext; sc.right = ext; sc.top = ext; sc.bottom = -ext; sc.near = 0.5; sc.far = h + 60; sc.updateProjectionMatrix(); }
   },
-  // box around the structure plus the stretch the current piece can travel (its path, not its position,
-  // so the camera doesn't sway as the piece moves back and forth)
-  // returns the boxes to keep in view: the structure, and (while aiming) the piece's travel path
-  frameBoxes() {
-    const b = World.bounds, boxes = [new THREE.Box3(
-      new THREE.Vector3(b.minX - 0.5, -1, b.minZ - 0.5), new THREE.Vector3(b.maxX + 0.5, b.topY + 1, b.maxZ + 0.5))];
-    const p = typeof S !== 'undefined' ? S.piece : null;
-    if (p && S.phase === 'aim') {
-      const ai = p.axis === 'x' ? 0 : 2, ci = p.axis === 'x' ? 2 : 0;
-      let a0 = Infinity, a1 = -Infinity, c0 = Infinity, c1 = -Infinity, y1 = 0;
-      for (const c of p.cells) { a0 = Math.min(a0, c[ai]); a1 = Math.max(a1, c[ai]); c0 = Math.min(c0, c[ci]); c1 = Math.max(c1, c[ci]); y1 = Math.max(y1, c[1]); }
-      const A0 = p.lo + a0 - 0.5, A1 = p.hi + a1 + 0.5, C0 = p.cross + c0 - 0.5, C1 = p.cross + c1 + 0.5;
-      const yb = hoverBaseY(), yt = yb + y1 + 1;
-      boxes.push(new THREE.Box3(new THREE.Vector3(p.axis === 'x' ? A0 : C0, yb, p.axis === 'x' ? C0 : A0),
-                                new THREE.Vector3(p.axis === 'x' ? A1 : C1, yt, p.axis === 'x' ? C1 : A1)));
-    }
-    return boxes;
-  },
-  // smallest distance (at the current angle) that keeps every corner of the box inside the clear part of
-  // the screen: below the top HUD and above the bottom controls
   _fit: new THREE.PerspectiveCamera(), _v: new THREE.Vector3(),
-  fitDistance(boxes, target) {
+  ringFit(b, target) {
+    const pad = CFG.move.margin + 1.5;
+    const cx = (b.minX + b.maxX) / 2, cz = (b.minZ + b.maxZ) / 2;
+    const r = Math.hypot((b.maxX - b.minX + 1) / 2 + pad, (b.maxZ - b.minZ + 1) / 2 + pad) * CFG.camera.ring;
+    const yTop = b.topY + 1 + CFG.move.hoverGap + 2;
     const fc = this._fit; fc.fov = camera.fov; fc.aspect = camera.aspect; fc.near = 0.1; fc.far = 400; fc.updateProjectionMatrix();
     const cp = Math.cos(this.pitch), dir = new THREE.Vector3(Math.sin(this.yaw) * cp, Math.sin(this.pitch), Math.cos(this.yaw) * cp);
-    const pts = [];
-    for (const bx of boxes) for (const x of [bx.min.x, bx.max.x]) for (const y of [bx.min.y, bx.max.y]) for (const z of [bx.min.z, bx.max.z]) pts.push([x, y, z]);
-    const lim = CFG.camera.frame;
     let d = 6;
-    for (let it = 0; it < 60; it++, d *= 1.05) {
+    for (let it = 0; it < 70; it++, d *= 1.04) {
       fc.position.copy(target).addScaledVector(dir, d); fc.lookAt(target); fc.updateMatrixWorld();
       let ok = true;
-      for (const [x, y, z] of pts) {
+      // pieces travel at hover height: keep that ring in view; the structure itself only needs its box in view
+      for (let a = 0; a < 16 && ok; a++) for (const y of [yTop - 2, yTop]) {
+        const v = this._v.set(cx + Math.cos(a * Math.PI / 8) * r, y, cz + Math.sin(a * Math.PI / 8) * r).project(fc);
+        if (v.z > 1 || Math.abs(v.x) > 0.98 || v.y > 0.6 || v.y < -0.7) { ok = false; break; }
+      }
+      for (const x of [b.minX - 0.5, b.maxX + 0.5]) for (const z of [b.minZ - 0.5, b.maxZ + 0.5]) for (const y of [-1, b.topY + 1]) {
+        if (!ok) break;
         const v = this._v.set(x, y, z).project(fc);
-        if (v.z > 1 || v.x < -lim.x || v.x > lim.x || v.y < lim.bottom || v.y > lim.top) { ok = false; break; }
+        if (v.z > 1 || Math.abs(v.x) > 0.98 || v.y > 0.6 || v.y < -0.7) ok = false;
       }
       if (ok) break;
     }
@@ -1504,6 +1493,7 @@ const TUNE = [
   ['celebrate.spark', 'Meter-full spark', 's', 0, 0.5, 0.05],
   ['celebrate.pop', 'Meter-full pop', 's', 0, 0.5, 0.05],
   ['powerups.shadow.showStability', 'Shadow shows stable/unstable', '', 'bool'],
+  ['camera.ring', 'Camera fit (keep tile paths in view)', '', 0, 1, 0.05],
   ['camera.sens', 'Camera drag sensitivity', '', 0.002, 0.02, 0.0005],
   ['baseplate.w', 'Baseplate width', 'cells', 1, 12, 1, 'restart'],
   ['baseplate.d', 'Baseplate depth', 'cells', 1, 12, 1, 'restart'],
@@ -1594,7 +1584,7 @@ Cam.update(1);
 requestAnimationFrame(frame);
 
 /* debug handle for tuning and automated checks */
-window.STACKER = { CFG, S, World, Physics, Movement, Cam, place, rotate: rotateY, tip, turn, setPaused, celebrate: () => { S.inv.shadow = (S.inv.shadow || 0) + 1; celebrate(); }, usePower, reset,
+window.STACKER = { CFG, S, World, Physics, Movement, Cam, camera: () => camera, place, rotate: rotateY, tip, turn, setPaused, celebrate: () => { S.inv.shadow = (S.inv.shadow || 0) + 1; celebrate(); }, usePower, reset,
   step(n, dt, noRender) { for (let i = 0; i < n; i++) step(dt || 1 / 60); if (!noRender) renderer.render(scene, camera); } };
 })();
 </script>
