@@ -272,11 +272,11 @@
 const CFG = {
   seed: 0,                                  // 0 = new random seed each build; set a number to repeat a sequence
   baseplate: { w: 5, d: 5 },                // starting construction area in cells (not a boundary)
-  piece: { minCells: 3, maxCells: 4 },      // random polycube size range
+  piece: { minCells: 3, maxCells: 4, spawnFlat: true },   // random polycube size range; spawnFlat = arrive in the flattest resting position
   move: {
     pattern: 'alternate',                   // 'alternate' | 'x' | 'z' — travel axis per piece
     speed: 2.6,                             // cells per second
-    margin: 2,                              // how far past the built edge of its line the piece travels (cells)
+    margin: 1,                              // how far past the built edge of its line the piece travels (cells)
     hoverGap: 2.5,                          // cells between the top of the structure and the hovering piece
     rampTo: 1.5,                            // speed multiplier reached on the last piece of a run (1 = no ramp)
   },
@@ -617,11 +617,11 @@ function buildBaseplate() {
   slab.position.set(cx, -0.5, cz); slab.receiveShadow = true; slab.castShadow = true;
   const plinth = new THREE.Mesh(new THREE.BoxGeometry(Math.max(0.6, w - 0.8), 18, Math.max(0.6, d - 0.8)),
     new THREE.MeshStandardMaterial({ color: lin(0x8a8f8c), roughness: 0.95 }));
-  plinth.position.set(cx, -10, cz); plinth.receiveShadow = true;
+  plinth.position.set(cx, -10, cz); plinth.receiveShadow = false;   // shadows only on the plate and blocks
   baseGroup.add(slab, plinth);
 }
 const ground = new THREE.Mesh(new THREE.CircleGeometry(90, 48), new THREE.MeshStandardMaterial({ color: lin(0xbfc4bb), roughness: 1 }));
-ground.rotation.x = -Math.PI / 2; ground.position.y = -19; ground.receiveShadow = true; scene.add(ground);
+ground.rotation.x = -Math.PI / 2; ground.position.y = -19; ground.receiveShadow = false; scene.add(ground);
 
 /* ghost for Landing Shadow */
 const ghost = {
@@ -861,12 +861,16 @@ function vanish(p) {
 function hoverBaseY() { return World.bounds.topY + 1 + CFG.move.hoverGap; }
 
 function spawn() {
-  const cells = Poly.generate();
+  const base = Poly.generate();
+  const stances = stancesOf(base);
+  // arrive in the flattest resting side (random facing), or as generated
+  const q0 = CFG.piece.spawnFlat ? stances[0].rots[Math.floor(rng() * stances[0].rots.length)].clone() : new THREE.Quaternion();
+  const cells = applyRot(q0, base);
   const color = PALETTE[Math.floor(rng() * PALETTE.length)];
   const mat = new THREE.MeshStandardMaterial({ color: lin(color), roughness: 0.62, metalness: 0.04, emissive: 0x000000 });
   const root = new THREE.Group(), body = new THREE.Group(); root.add(body);
   const meshes = cells.map(c => { const m = makeCube(mat); m.position.set(c[0], c[1], c[2]); body.add(m); return m; });
-  const p = { cells, color, mat, root, body, meshes, anim: null, hoverY: hoverBaseY(), born: 0 };
+  const p = { cells, base, stances, q: q0, color, mat, root, body, meshes, anim: null, hoverY: hoverBaseY(), born: 0 };
   Movement.setup(p);
   const [x, z] = Movement.xz(p);
   root.position.set(x, p.hoverY + 0.5, z);
@@ -885,10 +889,57 @@ function visState(p) {
 }
 
 // logical cells change instantly; the mesh eases from its current pose to the new one.
+/* ---------- Orientation: the 24 ways a cube shape can face ----------
+   A "resting side" (stance) = which way is down, ignoring spins about the vertical. FLIP steps through a
+   shape's resting sides in a fixed order, flattest first; ROTATE spins within a resting side. */
+const ROTS = (() => {
+  const out = [new THREE.Quaternion()], seen = new Set(), key = q => {
+    const m = new THREE.Matrix4().makeRotationFromQuaternion(q).elements; return m.map(v => Math.round(v)).join(); };
+  seen.add(key(out[0]));
+  const steps = [new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2),
+                 new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2)];
+  for (let i = 0; i < out.length; i++) for (const st of steps) {
+    const q = st.clone().multiply(out[i]); const k = key(q);
+    if (!seen.has(k)) { seen.add(k); out.push(q); }
+  }
+  return out;   // 24
+})();
+function applyRot(q, cells) {
+  const v = new THREE.Vector3();
+  return Poly.normalize(cells.map(c => { v.set(c[0], c[1], c[2]).applyQuaternion(q); return [Math.round(v.x), Math.round(v.y), Math.round(v.z)]; })).cells;
+}
+function shapeKey(cells) {        // position-independent key of an exact orientation
+  let mx = Infinity, my = Infinity, mz = Infinity;
+  for (const c of cells) { mx = Math.min(mx, c[0]); my = Math.min(my, c[1]); mz = Math.min(mz, c[2]); }
+  return cells.map(c => (c[0] - mx) + ',' + (c[1] - my) + ',' + (c[2] - mz)).sort().join('|');
+}
+const Y90 = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2);
+function stanceKey(cells) {       // same for all four spins about the vertical
+  let best = null, q = new THREE.Quaternion();
+  for (let k = 0; k < 4; k++) { const kk = shapeKey(applyRot(q, cells)); if (best === null || kk < best) best = kk; q = Y90.clone().multiply(q); }
+  return best;
+}
+// a piece's resting sides, flattest first (lowest height, then widest footprint)
+function stancesOf(base) {
+  const map = new Map();
+  for (const q of ROTS) {
+    const cells = applyRot(q, base), k = stanceKey(cells);
+    if (!map.has(k)) {
+      let h = 0; const foot = new Set();
+      for (const c of cells) { h = Math.max(h, c[1] + 1); foot.add(c[0] + ',' + c[2]); }
+      map.set(k, { key: k, h, foot: foot.size, rots: [] });
+    }
+    map.get(k).rots.push(q);
+  }
+  return [...map.values()].sort((a, b) => a.h - b.h || b.foot - a.foot || (a.key < b.key ? -1 : 1));
+}
+const qAngle = (a, b) => 2 * Math.acos(Math.min(1, Math.abs(a.dot(b))));
+
 function rotatePiece(axis, angle) {
   const p = S.piece; if (!p || S.phase !== 'aim') return;
   const { cells, s } = Poly.rotate(p.cells, axis, angle);
   const R = new THREE.Quaternion().setFromAxisAngle(axis, angle);
+  p.q = R.clone().multiply(p.q);
   const { Q, V } = visState(p);
   const q0 = Q.clone().multiply(R.clone().invert());
   const v0 = new THREE.Vector3(s[0], s[1], s[2]).applyQuaternion(q0).add(V);
@@ -898,10 +949,21 @@ function rotatePiece(axis, angle) {
   AudioFX.tick();
 }
 function rotateY() { rotatePiece(Y_AXIS, Math.PI / 2); }
+// FLIP: move to the next resting side in this shape's fixed order (flattest first), keeping the
+// facing as close as possible to how it was, so a FLIP never needs a ROTATE to undo it
 function tip() {
   if (!CFG.rotate.allowTip) return;
-  const f = Cam.forwardAxis();
-  rotatePiece(new THREE.Vector3(f.z, 0, -f.x), Math.PI / 2); // top rolls away from the camera
+  const p = S.piece; if (!p || S.phase !== 'aim') return;
+  if (p.stances.length < 2) { AudioFX.tone(260, 0.06, 'triangle', 0.05); return; }
+  const cur = stanceKey(p.cells);
+  let i = p.stances.findIndex(st => st.key === cur); if (i < 0) i = 0;
+  const next = p.stances[(i + 1) % p.stances.length];
+  let best = null, bestA = Infinity;
+  for (const q of next.rots) { const a = qAngle(q, p.q); if (a < bestA - 1e-6) { bestA = a; best = q; } }
+  const D = best.clone().multiply(p.q.clone().invert());
+  if (D.w < 0) { D.x = -D.x; D.y = -D.y; D.z = -D.z; D.w = -D.w; }
+  const ang = 2 * Math.acos(Math.min(1, D.w)), sn = Math.sqrt(Math.max(1e-9, 1 - D.w * D.w));
+  rotatePiece(new THREE.Vector3(D.x / sn, D.y / sn, D.z / sn).normalize(), ang);
 }
 
 function turn() {
@@ -1482,6 +1544,7 @@ const TUNE = [
   ['piece.minCells', 'Min cubes per piece', '', 1, 8, 1],
   ['piece.maxCells', 'Max cubes per piece', '', 1, 8, 1],
   ['rotate.allowTip', 'Allow flipping', '', 'bool'],
+  ['piece.spawnFlat', 'Tiles arrive lying flat', '', 'bool'],
   ['physics.tolerance', 'Stability slack', 'cells', -0.4, 0.6, 0.05],
   ['physics.gravity', 'Drop gravity', 'cells/s²', 5, 90, 1],
   ['meter.max', 'Meter size', 'pts', 1, 20, 1],
