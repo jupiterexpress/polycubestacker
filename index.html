@@ -1,0 +1,1551 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Polycube Stacker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<style>
+  /* Single deliberate look: overcast site daylight. Colors are set explicitly, no theme switch. */
+  :root {
+    --ink: #17202b;
+    --glass: rgba(21, 29, 39, 0.80);
+    --glass-edge: rgba(255, 255, 255, 0.10);
+    --paper: #eef1ec;
+    --muted: #93a1ac;
+    --accent: #f06a24;
+    --accent-dark: #c2501a;
+    --amber: #f2b233;
+    --sky-top: #8ea5b6;
+    --sky-bottom: #e2e5de;
+    --good: #7fc28a;
+    --bad: #e46a55;
+    --display: "Barlow Condensed", "Arial Narrow", "Roboto Condensed", system-ui, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  html, body { height: 100%; margin: 0; overflow: hidden; }
+  [hidden] { display: none !important; }
+  body {
+    background: linear-gradient(180deg, var(--sky-top) 0%, var(--sky-bottom) 72%);
+    color: var(--paper);
+    font-family: var(--display);
+    -webkit-tap-highlight-color: transparent;
+    user-select: none; -webkit-user-select: none;
+  }
+  #app { position: fixed; inset: 0; }
+  #scene { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+  #scene.dragging { cursor: grabbing; }
+
+  .chip {
+    background: var(--glass);
+    border: 1px solid var(--glass-edge);
+    border-radius: 10px;
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  }
+
+  /* ---------- top HUD ---------- */
+  .hud-top {
+    position: absolute; top: 0; left: 0; right: 0;
+    padding: calc(env(safe-area-inset-top, 0px) + 12px) 16px 0;
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: start;
+    pointer-events: none;
+  }
+  .stats { grid-column: 1 / -1; justify-self: start; padding: 5px 10px; white-space: nowrap; max-width: 100%; overflow: hidden;
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.02em; font-variant-numeric: tabular-nums; }
+  .stats b { color: var(--paper); font-weight: 600; }
+  .stats span { color: var(--muted); }
+  .meter { padding: 7px 12px 9px; display: grid; gap: 5px; justify-items: start; max-width: 360px; width: 100%; box-sizing: border-box; }
+  .meter-label { font-size: 12px; font-weight: 700; letter-spacing: 0.14em; color: var(--muted); display: flex; gap: 8px; }
+  .meter-label em { font-style: normal; color: var(--amber); font-family: var(--mono); font-size: 11px; letter-spacing: 0; font-variant-numeric: tabular-nums; }
+  .segs { display: flex; gap: 3px; width: 100%; }
+  .seg { flex: 1; height: 9px; border-radius: 2px; background: rgba(255,255,255,0.12); transition: background 0.2s; }
+  .seg.on { background: var(--amber); }
+  .meter.full .seg { background: #fff; }
+  .meter.bump { animation: bump 0.35s ease-out; }
+  @keyframes bump { 40% { transform: scale(1.08); } }
+  .top-btns { grid-row: 1; grid-column: 2; display: flex; gap: 8px; justify-self: end; }
+  .gear { pointer-events: auto; width: 40px; height: 40px; display: grid; place-items: center;
+    color: var(--paper); cursor: pointer; padding: 0; }
+  .gear svg { width: 20px; height: 20px; }
+  .strk { letter-spacing: 0.08em; }
+  .strk i { font-style: normal; color: var(--muted); }
+  .strk i.hit { color: var(--bad); }
+  /* pause card */
+  .pause { position: absolute; inset: 0; display: grid; place-items: center; padding: 0 16px; pointer-events: none;
+    background: rgba(18, 25, 34, 0.18); }
+  .pause-card { pointer-events: auto; width: 100%; max-width: 300px; padding: 18px 16px 16px; box-sizing: border-box;
+    background: rgba(18, 25, 34, 0.92); display: grid; gap: 10px; text-align: center; }
+  .pause-card h2 { margin: 0; font-size: 28px; letter-spacing: 0.14em; }
+  .pause-card p { margin: 0 0 4px; font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .pause-card .btn { height: 48px; border-radius: 12px; font-size: 16px; background: #2a3847; }
+  .pause-card .btn.resume { background: var(--accent); box-shadow: 0 4px 0 var(--accent-dark); font-size: 18px; }
+
+  /* ---------- toast + hint ---------- */
+  .toast { position: absolute; left: 50%; top: 22%; transform: translate(-50%, 0);
+    font-weight: 700; font-size: 34px; letter-spacing: 0.06em; color: var(--paper);
+    text-shadow: 0 2px 0 rgba(0,0,0,0.25), 0 0 18px rgba(0,0,0,0.25);
+    opacity: 0; pointer-events: none; white-space: nowrap; }
+  .toast.show { animation: toast 0.9s ease-out forwards; }
+  .toast.perfect { color: var(--amber); }
+  .toast.bad { color: var(--bad); }
+  .toast.power { color: var(--paper); }
+  @keyframes toast { 0% { opacity: 0; transform: translate(-50%, 10px) scale(0.9); }
+    15% { opacity: 1; transform: translate(-50%, 0) scale(1.04); }
+    70% { opacity: 1; transform: translate(-50%, -6px) scale(1); }
+    100% { opacity: 0; transform: translate(-50%, -16px) scale(1); } }
+  .hint { position: absolute; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 196px); transform: translateX(-50%);
+    max-width: calc(100% - 32px); box-sizing: border-box; text-align: center;
+    font-family: var(--mono); font-size: 11px; color: var(--ink); background: rgba(238,241,236,0.8);
+    padding: 6px 10px; border-radius: 999px; transition: opacity 0.6s; pointer-events: none; }
+  .hint.gone { opacity: 0; }
+
+  /* ---------- controls ---------- */
+  .controls { position: absolute; left: 0; right: 0; bottom: 0;
+    padding: 0 16px calc(env(safe-area-inset-bottom, 0px) + 16px);
+    display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; pointer-events: none; }
+  .left-stack { display: grid; gap: 8px; justify-items: start; }
+  button { font-family: var(--display); -webkit-appearance: none; appearance: none; }
+  .btn { pointer-events: auto; border: 1px solid var(--glass-edge); color: var(--paper); cursor: pointer;
+    display: grid; place-items: center; align-content: center; gap: 2px; padding: 0;
+    font-weight: 700; letter-spacing: 0.1em; font-size: 13px; touch-action: manipulation;
+    transition: transform 0.08s, background 0.15s; }
+  .btn:active, .btn.pressed { transform: scale(0.94); }
+  .btn:focus-visible, .gear:focus-visible, .sheet button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+  .btn svg { width: 26px; height: 26px; }
+  .rotate { width: 78px; height: 78px; border-radius: 22px; background: var(--glass); }
+  .tip { width: 58px; height: 44px; border-radius: 14px; background: var(--glass); font-size: 12px; }
+  .tip svg { width: 18px; height: 18px; }
+  .right-stack { display: grid; gap: 10px; justify-items: end; }
+  .turn { width: 78px; height: 54px; border-radius: 16px; background: var(--glass); font-size: 12px; }
+  .turn svg { width: 22px; height: 22px; }
+  .turn small { font-family: var(--mono); font-weight: 500; font-size: 9px; letter-spacing: 0; color: var(--muted); }
+  .turn.spent { opacity: 0.45; }
+  .place svg { width: 22px; height: 22px; }
+  .place { width: 98px; height: 98px; border-radius: 50%; background: var(--accent);
+    box-shadow: 0 6px 0 var(--accent-dark), 0 10px 22px rgba(0,0,0,0.25); font-size: 20px; letter-spacing: 0.12em; }
+  .place:active, .place.pressed { box-shadow: 0 2px 0 var(--accent-dark), 0 4px 12px rgba(0,0,0,0.25); transform: translateY(4px) scale(0.97); }
+  .place[disabled] { filter: saturate(0.4) brightness(0.9); }
+  .power { width: 108px; min-height: 62px; border-radius: 16px; background: var(--glass); padding: 8px 6px;
+    font-size: 12px; line-height: 1.1; text-align: center; }
+  .power small { font-family: var(--mono); font-weight: 500; letter-spacing: 0; font-size: 10px; color: var(--muted); }
+  .power { position: relative; }
+  .power.empty { opacity: 0.6; }
+  .spark { position: fixed; left: -7px; top: -7px; width: 14px; height: 14px; border-radius: 50%; pointer-events: none; z-index: 5;
+    background: radial-gradient(circle, #fff 0 35%, var(--amber) 60%, rgba(242,178,51,0) 72%);
+    box-shadow: 0 0 14px 6px rgba(242,178,51,0.55); }
+  .meter.full { box-shadow: 0 0 0 2px var(--paper), 0 0 22px rgba(255,255,255,0.55); }
+  .power.ready { background: var(--amber); color: var(--ink); animation: ready 1.2s ease-in-out infinite; }
+  .power.ready small { color: rgba(23,32,43,0.7); }
+  .power.active { background: var(--paper); color: var(--ink); }
+  .power.active small { color: #52606b; }
+  @keyframes ready { 50% { box-shadow: 0 0 0 6px rgba(242,178,51,0.35); } }
+  .shadow-icon { width: 30px; height: 18px; }
+
+  /* ---------- end card ---------- */
+  .end { position: absolute; left: 0; right: 0; bottom: 0; display: flex; justify-content: center;
+    padding: 0 16px calc(env(safe-area-inset-bottom, 0px) + 16px); pointer-events: none; }
+  .end-card { pointer-events: auto; width: 100%; max-width: 420px; padding: 16px 16px 14px; box-sizing: border-box;
+    background: rgba(18, 25, 34, 0.92); }
+  .end-card h2 { margin: 0 0 2px; font-size: 26px; letter-spacing: 0.08em; }
+  .end-card .sub { margin: 0 0 12px; font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .end-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px 8px; margin-bottom: 14px; }
+  .end-grid div { display: grid; gap: 1px; }
+  .end-grid span { font-size: 11px; font-weight: 600; letter-spacing: 0.12em; color: var(--muted); }
+  .end-grid b { font-family: var(--mono); font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--paper); }
+  .end-grid .hi b { color: var(--amber); }
+  .again { width: 100%; height: 52px; border-radius: 12px; background: var(--accent); box-shadow: 0 4px 0 var(--accent-dark);
+    font-size: 18px; letter-spacing: 0.12em; }
+  .again:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--accent-dark); }
+
+  /* ---------- tuning sheet ---------- */
+  .sheet { position: absolute; left: 0; right: 0; bottom: 0; max-height: 72%; overflow-y: auto;
+    background: rgba(18, 25, 34, 0.95); border-top: 1px solid var(--glass-edge); border-radius: 16px 16px 0 0;
+    padding: 14px 16px calc(env(safe-area-inset-bottom, 0px) + 16px); color: var(--paper); }
+  .sheet header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 4px; }
+  .sheet h2 { margin: 0; font-size: 20px; letter-spacing: 0.08em; }
+  .sheet p { margin: 0 0 12px; font-family: var(--mono); font-size: 11px; color: var(--muted); max-width: 60ch; }
+  .sheet .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px 20px; }
+  .row { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; align-items: center; }
+  .row label { font-size: 14px; font-weight: 600; letter-spacing: 0.03em; }
+  .row output { font-family: var(--mono); font-size: 12px; color: var(--amber); font-variant-numeric: tabular-nums; }
+  .row input[type=range] { grid-column: 1 / -1; width: 100%; accent-color: var(--amber); }
+  .row select { font-family: var(--mono); font-size: 12px; background: #243140; color: var(--paper); border: 1px solid var(--glass-edge); border-radius: 6px; padding: 4px; }
+  .row input[type=checkbox] { accent-color: var(--amber); width: 18px; height: 18px; }
+  .row .note { grid-column: 1 / -1; font-family: var(--mono); font-size: 10px; color: var(--muted); }
+  .sheet-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+  .sheet button.s { background: #2a3847; color: var(--paper); border: 1px solid var(--glass-edge); border-radius: 8px;
+    padding: 9px 14px; font-size: 14px; font-weight: 700; letter-spacing: 0.06em; cursor: pointer; }
+  .sheet button.s.primary { background: var(--accent); border-color: transparent; }
+  .close { background: none; border: none; color: var(--muted); font-size: 14px; font-weight: 700; letter-spacing: 0.08em; cursor: pointer; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .toast.show { animation-duration: 0.01s; opacity: 1; }
+    .power.ready, .meter.bump { animation: none; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <canvas id="scene" aria-label="3D build area. Drag to change the camera angle."></canvas>
+
+  <div class="hud-top">
+    <div class="meter chip" id="meter">
+      <div class="meter-label">POWER <em id="meterNum">0/6</em></div>
+      <div class="segs" id="segs"></div>
+    </div>
+    <div class="top-btns">
+      <button class="gear chip" id="pauseBtn" aria-label="Pause (keyboard P or Esc)">
+        <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
+      </button>
+      <button class="gear chip" id="gearBtn" aria-label="Open tuning panel">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
+      </button>
+    </div>
+    <div class="stats chip" id="stats" aria-live="polite"></div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+  <div class="hint" id="hint">Drag to change camera angle · Axis changes direction · Drop to place</div>
+
+  <div class="controls" id="controls">
+    <div class="left-stack">
+      <button class="btn tip chip" id="tipBtn" aria-label="Flip piece over (keyboard T)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M12.5 21l-5-5 5-5 5 5z"/><path d="M5 9a7 7 0 0 1 9-5"/><path d="M11.5 2.2l2.6 1.9-1.9 2.6"/></svg>
+        FLIP
+      </button>
+      <button class="btn rotate" id="rotBtn" aria-label="Rotate piece (keyboard R)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20 4v5h-5"/></svg>
+        ROTATE
+      </button>
+    </div>
+    <button class="btn power empty" id="powerBtn" aria-label="Landing Shadow powerup (keyboard S)"></button>
+    <div class="right-stack">
+      <button class="btn turn" id="turnBtn" aria-label="Change travel axis (keyboard E)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h18M6 9l-3 3 3 3M18 9l3 3-3 3"/><path d="M12 3v18M9 6l3-3 3 3M9 18l3 3 3-3"/></svg>
+        <span id="turnLabel">AXIS</span>
+      </button>
+      <button class="btn place" id="placeBtn" aria-label="Drop piece (keyboard Space)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v15M6 13l6 6 6-6"/></svg>
+        DROP
+      </button>
+    </div>
+  </div>
+
+  <div class="end" id="end" hidden>
+    <div class="end-card chip" role="dialog" aria-labelledby="endTitle">
+      <h2 id="endTitle">BUILD COMPLETE</h2>
+      <p class="sub" id="endSub"></p>
+      <div class="end-grid" id="endGrid"></div>
+      <button class="btn again" id="againBtn">BUILD AGAIN</button>
+    </div>
+  </div>
+
+  <div class="pause" id="pause" hidden>
+    <div class="pause-card chip" role="dialog" aria-labelledby="pauseTitle">
+      <h2 id="pauseTitle">PAUSED</h2>
+      <p>Drag to change camera angle</p>
+      <button class="btn resume" id="resumeBtn">RESUME</button>
+      <button class="btn" id="pRestartBtn">RESTART</button>
+      <button class="btn" id="pTuneBtn">TUNING</button>
+    </div>
+  </div>
+
+  <div class="sheet" id="sheet" hidden>
+    <header><h2>TUNING</h2><button class="close" id="closeSheet">CLOSE</button></header>
+    <p>Every number here is a starting placeholder, not a design decision. Changes apply live except baseplate size, which applies on restart. The same values live in the CFG block at the top of the script.</p>
+    <div class="grid" id="tuneGrid"></div>
+    <div class="sheet-actions">
+      <button class="s" id="grantBtn">Grant Landing Shadow</button>
+      <button class="s" id="fillBtn">Fill meter</button>
+      <button class="s primary" id="restartBtn">Restart build</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function () {
+'use strict';
+
+/* =====================================================================
+   CFG — every value is a tunable placeholder. Nothing here is a final rule.
+   ===================================================================== */
+const CFG = {
+  seed: 0,                                  // 0 = new random seed each build; set a number to repeat a sequence
+  baseplate: { w: 5, d: 5 },                // starting construction area in cells (not a boundary)
+  piece: { minCells: 3, maxCells: 4 },      // random polycube size range
+  move: {
+    pattern: 'alternate',                   // 'alternate' | 'x' | 'z' — travel axis per piece
+    speed: 2.6,                             // cells per second
+    margin: 2,                              // how far past the built edge of its line the piece travels (cells)
+    hoverGap: 2.5,                          // cells between the top of the structure and the hovering piece
+    rampTo: 1.5,                            // speed multiplier reached on the last piece of a run (1 = no ramp)
+  },
+  turn: {                                   // the AXIS button: change travel axis mid-flight
+    maxPerPiece: 0,                         // 0 = unlimited axis changes per piece
+    meterCost: 0,                           // Power Meter points spent per change (0 = free)
+  },
+  run: { pieces: 30 },                      // pieces per build; the run ends when they are used
+  strikes: {
+    limit: 3,                               // run ends when strikes reach this (0 = off)
+    miss: true,                             // piece landed on nothing
+    allTrimmed: true,                       // every cube was outside the baseplate
+    topple: false,                          // piece rolled off (intended for harder difficulties later)
+  },
+  guides: { pathLine: false },              // floating line along the travel path (lane highlight is always on)
+  buildArea: {
+    trim: true,                             // cubes outside the baseplate footprint are cut off after landing
+    pause: 0.2,                             // seconds the landed piece holds before the cut (the learning beat)
+    slice: 0.1,                             // seconds for the light to sweep along the edge (overlaps the tip)
+    tip: 0.15,                              // seconds for cut cubes to hinge over the edge
+    fall: 0.25,                             // seconds for cut cubes to fall and shrink away
+  },
+  rotate: { animMs: 140, allowTip: true },  // FLIP = roll 90° about a horizontal axis (away from the camera)
+  physics: {
+    gravity: 42,                            // cells/s² for the drop
+    dropKick: 6,                            // initial downward speed on Place
+    tolerance: 0,                           // stability slack in cells (+ = more forgiving)
+    toppleAccel: 10,                        // how fast an unstable piece rolls off
+  },
+  perfect: { minSupport: 1 },               // share of a piece's underside that must rest on something (1 = all of it)
+  celebrate: { flash: 0.1, spark: 0.15, pop: 0.15 },  // meter-full payoff, seconds per phase
+  meter: {
+    max: 4,                                 // points to fill (easy-level placeholder)
+    success: 0,                             // points for a stable placement that isn't perfect
+    perfect: 1,                             // points for a perfect placement
+    reward: 'shadow',                       // powerup granted when full
+  },
+  powerups: {
+    shadow: { placements: 3, showStability: false },   // Landing Shadow covers this many drops
+  },
+  camera: {
+    yaw: 0.72, pitch: 0.52, dist: 14,
+    pitchMin: 0.14, pitchMax: 1.32,         // radians — keeps the view from flipping
+    sens: 0.0075, inertia: 0.9,
+    zoomMin: 0.55, zoomMax: 1.9,
+  },
+  spawnDelay: 0.25,                         // seconds before the next piece appears
+};
+
+const PALETTE = [0xd9a441, 0x3f8f8a, 0xc0583e, 0x4f6fae, 0x87a35f, 0xcfc4ae];
+
+/* ---------------- RNG ---------------- */
+function mulberry32(a) { return function () { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+let rng = Math.random;
+const randInt = (lo, hi) => lo + Math.floor(rng() * (hi - lo + 1));
+
+/* =====================================================================
+   POLYCUBE — shape generation and integer rotation
+   ===================================================================== */
+const DIRS = [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
+const Poly = {
+  generate() {
+    const lo = Math.min(CFG.piece.minCells, CFG.piece.maxCells);
+    const hi = Math.max(CFG.piece.minCells, CFG.piece.maxCells);
+    const n = randInt(Math.max(1, lo), Math.max(1, hi));
+    const cells = [[0,0,0]], seen = new Set(['0,0,0']);
+    while (cells.length < n) {
+      const c = cells[Math.floor(rng() * cells.length)], d = DIRS[Math.floor(rng() * 6)];
+      const k = [c[0]+d[0], c[1]+d[1], c[2]+d[2]], key = k.join();
+      if (!seen.has(key)) { seen.add(key); cells.push(k); }
+    }
+    return Poly.normalize(cells).cells;
+  },
+  // shift so min y = 0 and the xz centroid sits on the origin cell; returns the shift applied
+  normalize(cells) {
+    let minY = Infinity, sx = 0, sz = 0;
+    for (const c of cells) { minY = Math.min(minY, c[1]); sx += c[0]; sz += c[2]; }
+    const s = [Math.round(sx / cells.length), minY, Math.round(sz / cells.length)];
+    return { cells: cells.map(c => [c[0]-s[0], c[1]-s[1], c[2]-s[2]]), s };
+  },
+  rotate(cells, axis, angle) {
+    const v = new THREE.Vector3();
+    const out = cells.map(c => { v.set(c[0], c[1], c[2]).applyAxisAngle(axis, angle); return [Math.round(v.x), Math.round(v.y), Math.round(v.z)]; });
+    return Poly.normalize(out);
+  },
+};
+
+/* =====================================================================
+   WORLD — voxel occupancy. Baseplate cells sit at y = -1.
+   ===================================================================== */
+const World = {
+  occ: new Map(), colTop: new Map(), bounds: null,
+  reset() {
+    this.occ.clear(); this.colTop.clear();
+    this.bounds = { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity, topY: -Infinity };
+    const { x0, z0, w, d } = baseRect();
+    for (let i = 0; i < w; i++) for (let k = 0; k < d; k++) this.add(x0 + i, -1, z0 + k, 'base');
+  },
+  add(x, y, z, id) {
+    this.occ.set(x + ',' + y + ',' + z, id);
+    const ck = x + ',' + z; const t = this.colTop.get(ck);
+    if (t === undefined || y > t) this.colTop.set(ck, y);
+    const b = this.bounds;
+    b.minX = Math.min(b.minX, x); b.maxX = Math.max(b.maxX, x);
+    b.minZ = Math.min(b.minZ, z); b.maxZ = Math.max(b.maxZ, z);
+    b.topY = Math.max(b.topY, y);
+  },
+  has(x, y, z) { return this.occ.has(x + ',' + y + ',' + z); },
+  top(x, z) { return this.colTop.get(x + ',' + z); },
+};
+function baseRect() {
+  const w = Math.max(1, CFG.baseplate.w | 0), d = Math.max(1, CFG.baseplate.d | 0);
+  return { w, d, x0: -Math.floor(w / 2), z0: -Math.floor(d / 2) };
+}
+
+/* =====================================================================
+   PHYSICS — swappable. Grid drop + center-of-mass-over-support test.
+   The placed structure is treated as rigid; only the new piece is judged.
+   ===================================================================== */
+const Physics = {
+  // lowest base y where the piece rests when dropped straight down at (x, z); null = nothing underneath
+  findLanding(cells, x, z) {
+    let base = -Infinity;
+    for (const c of cells) {
+      const t = World.top(x + c[0], z + c[2]);
+      if (t !== undefined) base = Math.max(base, t + 1 - c[1]);
+    }
+    return base === -Infinity ? null : base;
+  },
+  evaluate(cells, x, y, z) {
+    const own = new Set(cells.map(c => c.join()));
+    const contacts = [], bottoms = [];
+    let comX = 0, comZ = 0;
+    for (const c of cells) {
+      comX += x + c[0]; comZ += z + c[2];
+      const facesDown = !own.has([c[0], c[1] - 1, c[2]].join());
+      if (!facesDown) continue;
+      bottoms.push(c);
+      if (World.has(x + c[0], y + c[1] - 1, z + c[2])) contacts.push(c);
+    }
+    const com = { x: comX / cells.length, z: comZ / cells.length };
+    const pts = [];
+    for (const c of contacts) {
+      const cx = x + c[0], cz = z + c[2];
+      pts.push({ x: cx - 0.5, z: cz - 0.5 }, { x: cx + 0.5, z: cz - 0.5 }, { x: cx + 0.5, z: cz + 0.5 }, { x: cx - 0.5, z: cz + 0.5 });
+    }
+    const hull = Physics.hull(pts);
+    const stable = contacts.length > 0 && Physics.inside(com, hull, CFG.physics.tolerance);
+    const supportRatio = contacts.length / bottoms.length;
+    const perfect = stable && supportRatio >= Math.min(1, CFG.perfect.minSupport) - 1e-9;
+    return { stable, perfect, contacts, com, hull, supportRatio, overhang: bottoms.length - contacts.length };
+  },
+  hull(p) {
+    p = p.slice().sort((a, b) => a.x - b.x || a.z - b.z);
+    if (p.length < 3) return p;
+    const cr = (o, a, b) => (a.x - o.x) * (b.z - o.z) - (a.z - o.z) * (b.x - o.x);
+    const lo = [], up = [];
+    for (const q of p) { while (lo.length >= 2 && cr(lo[lo.length-2], lo[lo.length-1], q) <= 0) lo.pop(); lo.push(q); }
+    for (let i = p.length - 1; i >= 0; i--) { const q = p[i]; while (up.length >= 2 && cr(up[up.length-2], up[up.length-1], q) <= 0) up.pop(); up.push(q); }
+    up.pop(); lo.pop();
+    return lo.concat(up);
+  },
+  inside(pt, h, tol) {
+    if (h.length < 3) return false;
+    for (let i = 0; i < h.length; i++) {
+      const a = h[i], b = h[(i + 1) % h.length];
+      const ex = b.x - a.x, ez = b.z - a.z, len = Math.hypot(ex, ez) || 1;
+      if ((ex * (pt.z - a.z) - ez * (pt.x - a.x)) / len < -tol - 1e-6) return false;
+    }
+    return true;
+  },
+  // pivot edge and roll direction for a piece that fails the test
+  toppleFrame(ev) {
+    let cx = 0, cz = 0;
+    for (const q of ev.hull) { cx += q.x; cz += q.z; }
+    cx /= ev.hull.length || 1; cz /= ev.hull.length || 1;
+    let dx = ev.com.x - cx, dz = ev.com.z - cz; const L = Math.hypot(dx, dz);
+    if (L < 1e-4) { dx = 1; dz = 0; } else { dx /= L; dz /= L; }
+    let best = -Infinity, px = cx, pz = cz;
+    for (const q of ev.hull) { const d = q.x * dx + q.z * dz; if (d > best) { best = d; px = q.x; pz = q.z; } }
+    return { dir: new THREE.Vector3(dx, 0, dz), pivot: new THREE.Vector3(px, 0, pz), axis: new THREE.Vector3(dz, 0, -dx) };
+  },
+};
+
+/* =====================================================================
+   MOVEMENT — swappable. Ping-pong across the current construction area.
+   Knows nothing about the camera.
+   ===================================================================== */
+const Movement = {
+  axisFlip: 0,
+  // every built column, grouped into travel lines: lines(axis).get(cross) = [positions along axis]
+  lines(axis) {
+    const out = new Map();
+    for (const k of World.colTop.keys()) {
+      const [x, z] = k.split(',').map(Number);
+      const cross = axis === 'x' ? z : x, along = axis === 'x' ? x : z;
+      if (!out.has(cross)) out.set(cross, []);
+      out.get(cross).push(along);
+    }
+    return out;
+  },
+  // travel range = the built extent of this one line, plus the outward margin
+  range(axis, cross) {
+    const m = CFG.move.margin;
+    const line = this.lines(axis).get(cross);
+    let a, b;
+    if (line && line.length) { a = Math.min(...line); b = Math.max(...line); }
+    else { const bd = World.bounds; a = axis === 'x' ? bd.minX : bd.minZ; b = axis === 'x' ? bd.maxX : bd.maxZ; }
+    return [a - m, b + m];
+  },
+  // spawn only on lines that cross real surface, weighted by how much surface they cross
+  setup(piece) {
+    let axis = CFG.move.pattern;
+    if (axis === 'alternate') { axis = this.axisFlip ? 'z' : 'x'; this.axisFlip ^= 1; }
+    const lines = [...this.lines(axis).entries()];
+    const total = lines.reduce((n, [, l]) => n + l.length, 0);
+    let r = rng() * total, cross = lines[0][0];
+    for (const [c, l] of lines) { r -= l.length; if (r <= 0) { cross = c; break; } }
+    piece.axis = axis; piece.cross = cross;
+    [piece.lo, piece.hi] = this.range(axis, cross);
+    piece.dir = rng() < 0.5 ? 1 : -1;
+    piece.t = piece.dir > 0 ? piece.lo : piece.hi;
+    piece.nudge = new THREE.Vector2(0, 0);
+    piece.turns = 0;
+  },
+  // swap travel axis at the current position; keeps moving from exactly where it is
+  turn(piece) {
+    const [x, z] = this.xz(piece);
+    if (piece.axis === 'x') {
+      piece.axis = 'z'; piece.cross = Math.round(x); piece.t = z; piece.nudge.x += x - piece.cross;
+    } else {
+      piece.axis = 'x'; piece.cross = Math.round(z); piece.t = x; piece.nudge.y += z - piece.cross;
+    }
+    [piece.lo, piece.hi] = this.range(piece.axis, piece.cross);
+    piece.lo = Math.min(piece.lo, piece.t); piece.hi = Math.max(piece.hi, piece.t);
+    piece.dir = piece.t < (piece.lo + piece.hi) / 2 ? 1 : -1;   // head toward the built part of the line
+    piece.turns++;
+  },
+  update(piece, dt) {
+    piece.t += piece.dir * CFG.move.speed * (piece.speedMul || 1) * dt;
+    if (piece.t > piece.hi) { piece.t = piece.hi - (piece.t - piece.hi); piece.dir = -1; }
+    if (piece.t < piece.lo) { piece.t = piece.lo + (piece.lo - piece.t); piece.dir = 1; }
+    piece.t = Math.min(piece.hi, Math.max(piece.lo, piece.t));
+  },
+  xz(piece) { return piece.axis === 'x' ? [piece.t, piece.cross] : [piece.cross, piece.t]; },
+  snapped(piece) { const [x, z] = this.xz(piece); return [Math.round(x), Math.round(z)]; },
+};
+
+/* =====================================================================
+   POWERUPS — registry so more can be added later
+   ===================================================================== */
+const POWERUPS = {
+  shadow: { name: 'Landing Shadow', short: 'SHADOW', charges: () => Math.max(1, CFG.powerups.shadow.placements | 0) },
+};
+
+/* =====================================================================
+   RENDERING
+   ===================================================================== */
+const canvas = document.getElementById('scene');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputEncoding = THREE.sRGBEncoding;
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0xdde1da, 34, 80);
+const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 220);
+
+// Two lights: an angled key light shades the blocks (lit tops, darker sides) but casts no shadow;
+// a straight-down light casts every shadow, so a hovering piece's shadow sits exactly on the squares below it.
+scene.add(new THREE.HemisphereLight(0xe8f0f5, 0x6d665a, 0.58));
+const sun = new THREE.DirectionalLight(0xfff2de, 0.5);
+sun.castShadow = false;
+scene.add(sun, sun.target);
+const SUN_OFFSET = new THREE.Vector3(-7, 14, 5);
+const topLight = new THREE.DirectionalLight(0xffffff, 0.85);
+topLight.castShadow = true;
+topLight.shadow.mapSize.set(2048, 2048);
+topLight.shadow.bias = -0.0004; topLight.shadow.normalBias = 0.02;
+topLight.shadow.camera.up.set(0, 0, -1);      // straight-down light: keep the shadow camera's up off the view axis
+scene.add(topLight, topLight.target);
+
+const lin = hex => new THREE.Color(hex).convertSRGBToLinear();
+const CUBE = 0.965;
+const cubeGeo = new THREE.BoxGeometry(CUBE, CUBE, CUBE);
+const edgeGeo = new THREE.EdgesGeometry(cubeGeo);
+const edgeMat = new THREE.LineBasicMaterial({ color: 0x10161d, transparent: true, opacity: 0.28 });
+
+function makeCube(mat) {
+  const m = new THREE.Mesh(cubeGeo, mat); m.castShadow = true; m.receiveShadow = true;
+  m.add(new THREE.LineSegments(edgeGeo, edgeMat));
+  return m;
+}
+
+/* baseplate: gridded slab with a hazard-striped rim on a concrete plinth */
+const baseGroup = new THREE.Group(); scene.add(baseGroup);
+function cellTexture() {
+  const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
+  g.fillStyle = '#5b6771'; g.fillRect(0, 0, 64, 64);
+  g.strokeStyle = '#7a8791'; g.lineWidth = 2; g.strokeRect(1, 1, 62, 62);
+  g.fillStyle = '#6b7882'; g.fillRect(30, 30, 4, 4);
+  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.encoding = THREE.sRGBEncoding; t.anisotropy = 4;
+  return t;
+}
+function stripeTexture() {
+  const c = document.createElement('canvas'); c.width = 64; c.height = 64; const g = c.getContext('2d');
+  g.fillStyle = '#3d4750'; g.fillRect(0, 0, 64, 64);
+  g.save(); g.beginPath(); g.rect(0, 0, 64, 20); g.clip();
+  g.fillStyle = '#e2a531'; g.fillRect(0, 0, 64, 20);
+  g.fillStyle = '#1c232b';
+  for (let i = -64; i < 128; i += 22) { g.beginPath(); g.moveTo(i, 20); g.lineTo(i + 11, 20); g.lineTo(i + 31, 0); g.lineTo(i + 20, 0); g.fill(); }
+  g.restore();
+  const t = new THREE.CanvasTexture(c); t.wrapS = THREE.RepeatWrapping; t.encoding = THREE.sRGBEncoding;
+  return t;
+}
+function buildBaseplate() {
+  while (baseGroup.children.length) { const o = baseGroup.children.pop(); o.geometry && o.geometry.dispose(); }
+  const { w, d, x0, z0 } = baseRect();
+  const cx = x0 + (w - 1) / 2, cz = z0 + (d - 1) / 2;
+  const top = cellTexture(); top.repeat.set(w, d);
+  const sx = stripeTexture(); sx.repeat.set(d, 1);
+  const sz = stripeTexture(); sz.repeat.set(w, 1);
+  const mTop = new THREE.MeshStandardMaterial({ map: top, roughness: 0.85 });
+  const mSx = new THREE.MeshStandardMaterial({ map: sx, roughness: 0.8 });
+  const mSz = new THREE.MeshStandardMaterial({ map: sz, roughness: 0.8 });
+  const mBot = new THREE.MeshStandardMaterial({ color: lin(0x323a42) });
+  const slab = new THREE.Mesh(new THREE.BoxGeometry(w, 1, d), [mSx, mSx, mTop, mBot, mSz, mSz]);
+  slab.position.set(cx, -0.5, cz); slab.receiveShadow = true; slab.castShadow = true;
+  const plinth = new THREE.Mesh(new THREE.BoxGeometry(Math.max(0.6, w - 0.8), 18, Math.max(0.6, d - 0.8)),
+    new THREE.MeshStandardMaterial({ color: lin(0x8a8f8c), roughness: 0.95 }));
+  plinth.position.set(cx, -10, cz); plinth.receiveShadow = true;
+  baseGroup.add(slab, plinth);
+}
+const ground = new THREE.Mesh(new THREE.CircleGeometry(90, 48), new THREE.MeshStandardMaterial({ color: lin(0xbfc4bb), roughness: 1 }));
+ground.rotation.x = -Math.PI / 2; ground.position.y = -19; ground.receiveShadow = true; scene.add(ground);
+
+/* ghost for Landing Shadow */
+const ghost = {
+  group: new THREE.Group(), sig: '',
+  mat: new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.32, depthWrite: false }),
+  line: new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9 }),
+  cutLine: new THREE.LineDashedMaterial({ color: 0xffffff, transparent: true, opacity: 0.75, dashSize: 0.12, gapSize: 0.1 }),
+};
+ghost.group.visible = false; ghost.group.renderOrder = 2; scene.add(ghost.group);
+
+/* lane: highlights the top faces the piece travels over, plus the path line at hover height */
+const lane = {
+  group: new THREE.Group(), key: '',
+  tileGeo: new THREE.PlaneGeometry(0.9, 0.9),
+  tileMat: new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.26, depthWrite: false,
+    polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
+  lineMat: new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.7, depthWrite: false, side: THREE.DoubleSide }),
+  line: null,
+};
+lane.group.visible = false; scene.add(lane.group);
+lane.line = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), lane.lineMat); lane.line.renderOrder = 1; scene.add(lane.line);
+lane.line.visible = false;
+const _A = new THREE.Vector3(), _B = new THREE.Vector3(), _N = new THREE.Vector3(), _M = new THREE.Matrix4();
+// flat ribbon along the travel path that turns to face the camera; fades out when viewed down its length
+function updatePathLine(p) {
+  const L = lane.line;
+  if (!p || S.phase !== 'aim' || !CFG.guides.pathLine) { L.visible = false; return; }
+  const len = p.hi - p.lo + 1, mid = (p.lo + p.hi) / 2, y = p.hoverY - 0.04;
+  const cx = p.axis === 'x' ? mid : p.cross, cz = p.axis === 'x' ? p.cross : mid;
+  L.position.set(cx, y, cz);
+  _A.set(p.axis === 'x' ? 1 : 0, 0, p.axis === 'x' ? 0 : 1);
+  _N.copy(camera.position).sub(L.position);
+  const dist = _N.length(); _N.normalize();
+  const align = Math.abs(_N.dot(_A));
+  _N.addScaledVector(_A, -_N.dot(_A)).normalize();
+  _B.crossVectors(_N, _A);
+  L.quaternion.setFromRotationMatrix(_M.makeBasis(_A, _B, _N));
+  L.scale.set(len, Math.max(0.035, dist * 0.0032), 1);   // roughly constant on-screen thickness
+  lane.lineMat.opacity = 0.75 * Math.min(1, Math.max(0, (0.9 - align) / 0.2));
+  L.visible = lane.lineMat.opacity > 0.01;
+}
+function updateLane(t) {
+  const p = S.piece;
+  updatePathLine(p);
+  if (!p || S.phase !== 'aim') { lane.group.visible = false; return; }
+  // the band covers every row the piece's footprint occupies, over the full stretch it can travel
+  const ai = p.axis === 'x' ? 0 : 2, ci = p.axis === 'x' ? 2 : 0;
+  const crossOffs = [...new Set(p.cells.map(c => c[ci]))];
+  let aMin = Infinity, aMax = -Infinity;
+  for (const c of p.cells) { aMin = Math.min(aMin, c[ai]); aMax = Math.max(aMax, c[ai]); }
+  const key = p.axis + p.cross + ':' + p.lo + ':' + p.hi + ':' + crossOffs.join('/') + ':' + aMin + ':' + aMax + ':' + World.occ.size;
+  if (key !== lane.key) {
+    lane.key = key;
+    while (lane.group.children.length) lane.group.remove(lane.group.children[0]);
+    for (const o of crossOffs) for (let a = Math.ceil(p.lo + aMin); a <= Math.floor(p.hi + aMax); a++) {
+      const row = p.cross + o;
+      const x = p.axis === 'x' ? a : row, z = p.axis === 'x' ? row : a;
+      const top = World.top(x, z); if (top === undefined) continue;
+      const m = new THREE.Mesh(lane.tileGeo, lane.tileMat); m.rotation.x = -Math.PI / 2; m.position.set(x, top + 1.005, z);
+      lane.group.add(m);
+    }
+  }
+  lane.tileMat.opacity = 0.32 + 0.08 * Math.sin(t * 3);
+  lane.group.visible = true;
+}
+
+/* FX */
+const fx = [];
+const ringGeo = new THREE.RingGeometry(0.42, 0.56, 40);
+function dustRing(x, y, z, color) {
+  const m = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.7, depthWrite: false, side: THREE.DoubleSide }));
+  m.rotation.x = -Math.PI / 2; m.position.set(x, y + 0.02, z); scene.add(m);
+  fx.push({ t: 0, dur: 0.4, update(k) { const s = 1 + k * 2.6; m.scale.set(s, s, s); m.material.opacity = 0.7 * (1 - k); }, done() { scene.remove(m); m.material.dispose(); } });
+}
+function flash(mat, color) {
+  fx.push({ t: 0, dur: 0.45, update(k) { mat.emissive.setHex(color); mat.emissiveIntensity = 0.55 * (1 - k); }, done() { mat.emissiveIntensity = 0; } });
+}
+
+/* =====================================================================
+   CAMERA — one-finger orbit, pinch zoom. Independent of the piece.
+   ===================================================================== */
+const Cam = {
+  yaw: CFG.camera.yaw, pitch: CFG.camera.pitch, zoom: 1, vYaw: 0, vPitch: 0,
+  target: new THREE.Vector3(0, 1, 0), dist: CFG.camera.dist, shake: 0,
+  pointers: new Map(), pinch0: 0, zoom0: 1, dragged: false,
+  update(dt) {
+    if (this.pointers.size === 0) {
+      const f = Math.pow(CFG.camera.inertia, dt * 60);
+      this.yaw += this.vYaw; this.pitch += this.vPitch; this.vYaw *= f; this.vPitch *= f;
+    }
+    this.pitch = Math.min(CFG.camera.pitchMax, Math.max(CFG.camera.pitchMin, this.pitch));
+    const b = World.bounds;
+    const span = Math.max(b.maxX - b.minX + 1, b.maxZ - b.minZ + 1);
+    const h = b.topY + 1;
+    const want = new THREE.Vector3((b.minX + b.maxX) / 2, Math.max(0.8, h * 0.55 + 1), (b.minZ + b.maxZ) / 2);
+    const k = 1 - Math.exp(-3 * dt);
+    this.target.lerp(want, k);
+    const wantDist = (CFG.camera.dist + Math.max(0, Math.max(span - 5, h - 2)) * 0.9) * this.zoom * (camera.aspect < 0.8 ? 1.2 : 1);
+    this.dist += (wantDist - this.dist) * k;
+    const cp = Math.cos(this.pitch);
+    camera.position.set(
+      this.target.x + Math.sin(this.yaw) * cp * this.dist,
+      this.target.y + Math.sin(this.pitch) * this.dist,
+      this.target.z + Math.cos(this.yaw) * cp * this.dist);
+    if (this.shake > 0) { camera.position.y += (Math.random() - 0.5) * this.shake; this.shake *= Math.pow(0.02, dt); if (this.shake < 0.002) this.shake = 0; }
+    camera.lookAt(this.target);
+    sun.position.copy(this.target).add(SUN_OFFSET); sun.target.position.copy(this.target);
+    topLight.target.position.set(this.target.x, 0, this.target.z);
+    topLight.position.set(this.target.x, h + 30, this.target.z);
+    const ext = Math.max(10, span + 8);
+    const sc = topLight.shadow.camera;
+    if (sc.right !== ext || sc.far !== h + 60) { sc.left = -ext; sc.right = ext; sc.top = ext; sc.bottom = -ext; sc.near = 0.5; sc.far = h + 60; sc.updateProjectionMatrix(); }
+  },
+  // horizontal camera-forward snapped to the nearest world axis (used for the Tip direction)
+  forwardAxis() {
+    const fx = -Math.sin(this.yaw), fz = -Math.cos(this.yaw);
+    return Math.abs(fx) > Math.abs(fz) ? new THREE.Vector3(Math.sign(fx), 0, 0) : new THREE.Vector3(0, 0, Math.sign(fz));
+  },
+};
+
+canvas.addEventListener('pointerdown', e => {
+  AudioFX.unlock();
+  canvas.setPointerCapture(e.pointerId);
+  Cam.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  Cam.vYaw = Cam.vPitch = 0;
+  if (Cam.pointers.size === 2) { const [a, b] = [...Cam.pointers.values()]; Cam.pinch0 = Math.hypot(a.x - b.x, a.y - b.y); Cam.zoom0 = Cam.zoom; }
+  canvas.classList.add('dragging');
+});
+canvas.addEventListener('pointermove', e => {
+  const p = Cam.pointers.get(e.pointerId); if (!p) return;
+  const dx = e.clientX - p.x, dy = e.clientY - p.y; p.x = e.clientX; p.y = e.clientY;
+  if (Cam.pointers.size === 1) {
+    Cam.vYaw = -dx * CFG.camera.sens; Cam.vPitch = dy * CFG.camera.sens;
+    Cam.yaw += Cam.vYaw; Cam.pitch += Cam.vPitch;
+    if (Math.abs(dx) + Math.abs(dy) > 2) { Cam.dragged = true; hideHint(); }
+  } else if (Cam.pointers.size === 2) {
+    const [a, b] = [...Cam.pointers.values()]; const d = Math.hypot(a.x - b.x, a.y - b.y);
+    if (Cam.pinch0 > 0) Cam.zoom = clampZoom(Cam.zoom0 * Cam.pinch0 / d);
+    Cam.vYaw = Cam.vPitch = 0;
+  }
+});
+function endPointer(e) {
+  Cam.pointers.delete(e.pointerId);
+  if (Cam.pointers.size < 2) Cam.pinch0 = 0;
+  if (Cam.pointers.size === 0) canvas.classList.remove('dragging');
+}
+canvas.addEventListener('pointerup', endPointer);
+canvas.addEventListener('pointercancel', endPointer);
+canvas.addEventListener('wheel', e => { e.preventDefault(); Cam.zoom = clampZoom(Cam.zoom * (1 + e.deltaY * 0.0012)); }, { passive: false });
+function clampZoom(z) { return Math.min(CFG.camera.zoomMax, Math.max(CFG.camera.zoomMin, z)); }
+
+/* =====================================================================
+   AUDIO — tiny synthesized cues, no assets
+   ===================================================================== */
+const AudioFX = {
+  ctx: null,
+  unlock() { if (this.ctx) return; try { this.ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { this.ctx = null; } },
+  tone(freq, dur, type, vol, delay) {
+    const c = this.ctx; if (!c) return; const t = c.currentTime + (delay || 0);
+    const o = c.createOscillator(), g = c.createGain(); o.type = type; o.frequency.setValueAtTime(freq, t);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(c.destination); o.start(t); o.stop(t + dur + 0.02);
+  },
+  thunk() {
+    const c = this.ctx; if (!c) return; const t = c.currentTime, len = 0.12;
+    const buf = c.createBuffer(1, c.sampleRate * len, c.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 3);
+    const s = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain();
+    s.buffer = buf; f.type = 'lowpass'; f.frequency.value = 420; g.gain.value = 0.9;
+    s.connect(f).connect(g).connect(c.destination); s.start(t);
+    this.tone(92, 0.16, 'sine', 0.35);
+  },
+  tick() { this.tone(820, 0.05, 'triangle', 0.08); },
+  snip() { this.tone(1400, 0.05, 'square', 0.05); this.tone(900, 0.07, 'square', 0.04, 0.03); },
+  perfect() { this.tone(784, 0.18, 'sine', 0.18); this.tone(1175, 0.26, 'sine', 0.14, 0.07); },
+  power() { [523, 659, 784, 1047].forEach((f, i) => this.tone(f, 0.2, 'triangle', 0.14, i * 0.07)); },
+  fall() { const c = this.ctx; if (!c) return; const t = c.currentTime, o = c.createOscillator(), g = c.createGain();
+    o.type = 'sawtooth'; o.frequency.setValueAtTime(300, t); o.frequency.exponentialRampToValueAtTime(70, t + 0.45);
+    g.gain.setValueAtTime(0.07, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.5); o.connect(g).connect(c.destination); o.start(t); o.stop(t + 0.52); },
+};
+
+/* =====================================================================
+   GAME
+   ===================================================================== */
+const S = {
+  phase: 'wait', piece: null, waitT: 0.3,
+  meter: 0, inv: { shadow: 0 }, active: { shadow: 0 },
+  placed: 0, fell: 0, perfects: 0, pieces: [], falling: [], strikes: 0, paused: false,
+  cubes: 0, box: null, endT: 0, dropping: [], trims: [], pending: 0, queuedDrop: false, predicted: 0,
+  celebrateUntil: 0,
+};
+const freshBox = () => ({ minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity, minZ: Infinity, maxZ: -Infinity });
+const used = () => S.placed + S.fell + S.pending;
+const runTotal = () => Math.max(1, CFG.run.pieces | 0);
+// linear ramp by piece number: piece 1 = 1×, last piece = CFG.move.rampTo
+const speedMul = i => 1 + (Math.max(1, CFG.move.rampTo) - 1) * Math.min(1, i / Math.max(1, runTotal() - 1));
+const QI = new THREE.Quaternion();
+const Y_AXIS = new THREE.Vector3(0, 1, 0);
+
+// a piece that will never be played shrinks away in place
+function vanish(p) {
+  const root = p.root, mat = p.mat, s0 = root.scale.x;
+  fx.push({ t: 0, dur: 0.25, update(k) { root.scale.setScalar(Math.max(0.001, s0 * (1 - k))); },
+    done() { scene.remove(root); mat.dispose(); } });
+}
+function hoverBaseY() { return World.bounds.topY + 1 + CFG.move.hoverGap; }
+
+function spawn() {
+  const cells = Poly.generate();
+  const color = PALETTE[Math.floor(rng() * PALETTE.length)];
+  const mat = new THREE.MeshStandardMaterial({ color: lin(color), roughness: 0.62, metalness: 0.04, emissive: 0x000000 });
+  const root = new THREE.Group(), body = new THREE.Group(); root.add(body);
+  const meshes = cells.map(c => { const m = makeCube(mat); m.position.set(c[0], c[1], c[2]); body.add(m); return m; });
+  const p = { cells, color, mat, root, body, meshes, anim: null, hoverY: hoverBaseY(), born: 0 };
+  Movement.setup(p);
+  const [x, z] = Movement.xz(p);
+  root.position.set(x, p.hoverY + 0.5, z);
+  root.scale.setScalar(0.01);
+  scene.add(root);
+  p.speedMul = speedMul(used());
+  S.piece = p; S.phase = 'aim'; S.queuedDrop = false;
+  ghost.sig = ''; lane.key = '';
+  updateHUD();
+}
+
+function visState(p) {
+  if (!p.anim) return { Q: QI.clone(), V: new THREE.Vector3() };
+  const e = 1 - Math.pow(1 - Math.min(1, p.anim.t / p.anim.dur), 3);
+  return { Q: p.anim.q0.clone().slerp(QI, e), V: p.anim.v0.clone().multiplyScalar(1 - e) };
+}
+
+// logical cells change instantly; the mesh eases from its current pose to the new one.
+function rotatePiece(axis, angle) {
+  const p = S.piece; if (!p || S.phase !== 'aim') return;
+  const { cells, s } = Poly.rotate(p.cells, axis, angle);
+  const R = new THREE.Quaternion().setFromAxisAngle(axis, angle);
+  const { Q, V } = visState(p);
+  const q0 = Q.clone().multiply(R.clone().invert());
+  const v0 = new THREE.Vector3(s[0], s[1], s[2]).applyQuaternion(q0).add(V);
+  p.anim = { q0, v0, t: 0, dur: CFG.rotate.animMs / 1000 };
+  p.cells = cells;
+  cells.forEach((c, i) => p.meshes[i].position.set(c[0], c[1], c[2]));
+  AudioFX.tick();
+}
+function rotateY() { rotatePiece(Y_AXIS, Math.PI / 2); }
+function tip() {
+  if (!CFG.rotate.allowTip) return;
+  const f = Cam.forwardAxis();
+  rotatePiece(new THREE.Vector3(f.z, 0, -f.x), Math.PI / 2); // top rolls away from the camera
+}
+
+function turn() {
+  const p = S.piece; if (!p || S.phase !== 'aim') return;
+  if (!canTurn(p)) { AudioFX.tone(180, 0.08, 'square', 0.05); return; }
+  if (CFG.turn.meterCost > 0) S.meter -= CFG.turn.meterCost;
+  Movement.turn(p);
+  AudioFX.tone(520, 0.06, 'triangle', 0.09); AudioFX.tone(700, 0.06, 'triangle', 0.07, 0.04);
+  hideHint(); updateHUD();
+}
+function canTurn(p) {
+  if (!p) return false;
+  if (CFG.turn.maxPerPiece > 0 && p.turns >= CFG.turn.maxPerPiece) return false;
+  if (CFG.turn.meterCost > 0 && S.meter < CFG.turn.meterCost) return false;
+  return true;
+}
+
+/* =====================================================================
+   BUILD AREA — the baseplate footprint. At placement, cubes outside it are cut off;
+   whatever is left drops and settles wherever physics puts it.
+   ===================================================================== */
+const Area = {
+  inside(x, z) {
+    if (!CFG.buildArea.trim) return true;
+    const r = baseRect();
+    return x >= r.x0 && x < r.x0 + r.w && z >= r.z0 && z < r.z0 + r.d;
+  },
+  // returns kept cubes grouped into connected pieces, plus the indices that get cut
+  split(cells, x, z) {
+    const keep = [], cut = [];
+    cells.forEach((c, i) => (this.inside(x + c[0], z + c[2]) ? keep : cut).push(i));
+    const byKey = new Map(keep.map(i => [cells[i].join(), i]));
+    const left = new Set(keep), comps = [];
+    while (left.size) {
+      const start = left.values().next().value, comp = [start]; left.delete(start);
+      for (let q = 0; q < comp.length; q++) {
+        const c = cells[comp[q]];
+        for (const d of DIRS) {
+          const j = byKey.get([c[0] + d[0], c[1] + d[1], c[2] + d[2]].join());
+          if (j !== undefined && left.has(j)) { left.delete(j); comp.push(j); }
+        }
+      }
+      comps.push(comp);
+    }
+    return { comps, cut };
+  },
+};
+
+// DROP: the whole piece falls intact. Trimming (if any) happens after it lands.
+function place() {
+  const p = S.piece; if (!p || S.phase !== 'aim') return;
+  AudioFX.unlock();
+  if (S.pending > 0) { S.queuedDrop = true; return; }   // previous piece still settling: drop the moment it's done
+  p.anim = null; p.body.quaternion.identity(); p.body.position.set(0, 0, 0);
+  const [x, z] = Movement.snapped(p);
+  const { comps, cut } = Area.split(p.cells, x, z);
+  let land = Physics.findLanding(p.cells, x, z);
+  if (land === null && cut.length) land = 0;             // fully outside: stop at plate level so the miss is visible
+  p.pl = { total: 1, done: 0, stable: 0, allPerfect: true, trimmed: cut.length > 0, allTrimmed: comps.length === 0,
+           cutCount: cut.length, overhang: 0 };
+  // outcomes known at release: a full trim or a drop onto nothing will be a strike
+  const willStrike = (comps.length === 0 && CFG.strikes.allTrimmed) || (land === null && !cut.length && CFG.strikes.miss);
+  if (willStrike && (CFG.strikes.limit | 0) > 0) { p.pl.predicted = true; S.predicted++; }
+  if (cut.length) p.trim = { comps, cut };
+  p.drop = { x0: p.root.position.x, z0: p.root.position.z, x, z, vy: CFG.physics.dropKick, t: 0,
+             target: land === null ? null : land + 0.5, land };
+  S.dropping.push(p); S.pending++;
+  S.piece = null; S.phase = 'drop';
+  if (S.active.shadow > 0) S.active.shadow--;   // a Landing Shadow charge is spent per drop
+  ghost.group.visible = false;
+  hideHint();
+  updateHUD();
+}
+
+// first contact of a dropped piece: next piece can start coming in
+function releaseSpawn() { if (S.phase === 'drop') { S.phase = 'wait'; S.waitT = CFG.spawnDelay; } }
+
+// a disconnected leftover becomes its own body with its own material
+function splitOff(p, sub) {
+  const mat = p.mat.clone();
+  const root = new THREE.Group(), body = new THREE.Group(); root.add(body);
+  root.position.copy(p.root.position); root.quaternion.copy(p.root.quaternion); root.scale.copy(p.root.scale);
+  for (const m of sub.meshes) { m.material = mat; body.add(m); }
+  scene.add(root);
+  return { cells: sub.cells, meshes: sub.meshes, color: p.color, mat, root, body };
+}
+
+// which side of the baseplate a column is outside of (largest overshoot wins)
+function outsideDir(x, z) {
+  const r = baseRect(), ox = x < r.x0 ? x - r.x0 : x >= r.x0 + r.w ? x - (r.x0 + r.w - 1) : 0;
+  const oz = z < r.z0 ? z - r.z0 : z >= r.z0 + r.d ? z - (r.z0 + r.d - 1) : 0;
+  if (Math.abs(ox) >= Math.abs(oz) && ox !== 0) return { dx: Math.sign(ox), dz: 0, edge: ox > 0 ? r.x0 + r.w - 0.5 : r.x0 - 0.5 };
+  return { dx: 0, dz: Math.sign(oz), edge: oz > 0 ? r.z0 + r.d - 0.5 : r.z0 - 0.5 };
+}
+
+// the piece has landed with cubes over the edge: hold, then slice
+function startTrim(b) {
+  const { x, z, land } = b.drop;
+  b.root.position.set(x, land + 0.5, z);
+  Cam.shake = 0.03; AudioFX.thunk();
+  S.trims.push({ b, t: 0 });
+  releaseSpawn();
+}
+function updateTrims(dt) {
+  for (const tr of S.trims.slice()) {
+    tr.t += dt;
+    if (tr.t < CFG.buildArea.pause) continue;
+    S.trims.splice(S.trims.indexOf(tr), 1);
+    slice(tr.b);
+  }
+}
+function slice(b) {
+  const { x, z, land } = b.drop, { comps, cut } = b.trim;
+  const cells = b.cells, meshes = b.meshes;
+  sliceFx(cut.map(i => cells[i]), x, land, z);
+  cutAway(b, cut.map(i => ({ m: meshes[i], c: cells[i] })), x, land, z);
+  const pl = b.pl;
+  const bodies = comps.map((idx, n) => {
+    const sub = { cells: idx.map(i => cells[i]), meshes: idx.map(i => meshes[i]) };
+    if (n === 0) { b.cells = sub.cells; b.meshes = sub.meshes; return b; }
+    return splitOff(b, sub);
+  });
+  b.trim = null;
+  if (!bodies.length) { scene.remove(b.root); b.mat.dispose(); pl.total = 0; finishPlacement(pl); return; }
+  pl.total = bodies.length;
+  for (const o of bodies) {
+    const l = Physics.findLanding(o.cells, x, z);
+    o.pl = pl;
+    o.drop = { x0: x, z0: z, x, z, vy: 0, t: 1, target: l + 0.5, land: l };
+    S.dropping.push(o);
+  }
+}
+
+// cut cubes hinge over the plate edge, then fall and shrink away
+function cutAway(b, list, x, land, z) {
+  b.root.updateMatrixWorld(true);
+  const wp = new THREE.Vector3();
+  for (const { m, c } of list) {
+    m.getWorldPosition(wp);
+    const mat = b.mat.clone();
+    const root = new THREE.Group(); root.position.copy(wp); scene.add(root);
+    m.material = mat; root.add(m); m.position.set(0, 0, 0);
+    const d = outsideDir(x + c[0], z + c[2]);
+    const pivot = new THREE.Vector3(d.dx ? d.edge : wp.x, land + c[1], d.dz ? d.edge : wp.z);
+    S.falling.push({ root, mat, phase: 'tip', fade: 0, axis: new THREE.Vector3(d.dz, 0, -d.dx), pivot,
+      basePos: root.position.clone(), baseQ: root.quaternion.clone(), ang: 0, w: 0,
+      tipDur: Math.max(0.03, CFG.buildArea.tip), tipT: 0, fadeDur: Math.max(0.05, CFG.buildArea.fall) });
+  }
+  AudioFX.snip();
+}
+
+// a thin sheet of light sweeps along each plate edge that did the cutting
+const sliceMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide });
+function sliceFx(cells, x, land, z) {
+  const sides = new Map();
+  for (const c of cells) {
+    const d = outsideDir(x + c[0], z + c[2]), k = d.dx + ',' + d.dz;
+    const along = d.dx ? z + c[2] : x + c[0], y = land + c[1];
+    const e = sides.get(k) || { d, a0: Infinity, a1: -Infinity, y0: Infinity, y1: -Infinity };
+    e.a0 = Math.min(e.a0, along); e.a1 = Math.max(e.a1, along); e.y0 = Math.min(e.y0, y); e.y1 = Math.max(e.y1, y);
+    sides.set(k, e);
+  }
+  for (const e of sides.values()) {
+    const len = e.a1 - e.a0 + 1.3, h = e.y1 - e.y0 + 1.3, mid = (e.a0 + e.a1) / 2, ym = (e.y0 + e.y1) / 2 + 0.5;
+    const mat = sliceMat.clone();
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat);
+    if (e.d.dx) { m.rotation.y = Math.PI / 2; m.position.set(e.d.edge, ym, 0); }
+    else m.position.set(0, ym, e.d.edge);
+    scene.add(m);
+    const dur = Math.max(0.05, CFG.buildArea.slice);
+    fx.push({ t: 0, dur: dur + 0.25, update(k) {
+      const tt = k * (dur + 0.25), sweep = Math.min(1, tt / dur), fade = tt < dur ? 1 : 1 - (tt - dur) / 0.25;
+      const l = Math.max(0.01, len * sweep), start = mid - len / 2;
+      m.scale.set(l, h, 1);
+      if (e.d.dx) m.position.z = start + l / 2; else m.position.x = start + l / 2;
+      mat.opacity = 0.55 * fade;
+    }, done() { scene.remove(m); m.geometry.dispose(); mat.dispose(); } });
+  }
+}
+
+function updateDropping(dt) {
+  for (const b of S.dropping.slice()) {
+    const d = b.drop; d.t += dt;
+    const k = Math.min(1, d.t / 0.07);
+    b.root.position.x = d.x0 + (d.x - d.x0) * k;
+    b.root.position.z = d.z0 + (d.z - d.z0) * k;
+    d.vy += CFG.physics.gravity * dt;
+    b.root.position.y -= d.vy * dt;
+    if (d.target !== null && b.root.position.y <= d.target) {
+      S.dropping.splice(S.dropping.indexOf(b), 1);
+      if (b.trim) startTrim(b); else landBody(b);
+    } else if (d.target === null && b.root.position.y < -0.5) {
+      S.dropping.splice(S.dropping.indexOf(b), 1);
+      missBody(b);
+    }
+  }
+}
+
+function landBody(b) {
+  const { x, z, land } = b.drop;
+  b.root.position.set(x, land + 0.5, z);
+  const ev = Physics.evaluate(b.cells, x, land, z);
+  const pl = b.pl;
+  if (ev.stable) {
+    const id = S.pieces.length;
+    for (const c of b.cells) {
+      const cx = x + c[0], cy = land + c[1], cz = z + c[2];
+      World.add(cx, cy, cz, id);
+      const bx = S.box; S.cubes++;
+      bx.minX = Math.min(bx.minX, cx); bx.maxX = Math.max(bx.maxX, cx); bx.minY = Math.min(bx.minY, cy); bx.maxY = Math.max(bx.maxY, cy);
+      bx.minZ = Math.min(bx.minZ, cz); bx.maxZ = Math.max(bx.maxZ, cz);
+    }
+    S.pieces.push(b); pl.stable++;
+    if (!ev.perfect) pl.allPerfect = false;
+    pl.overhang += ev.overhang;
+    for (const c of ev.contacts) dustRing(x + c[0], land + c[1], z + c[2], 0xf4f1e8);
+    Cam.shake = 0.05; AudioFX.thunk();
+    // other parts of the same placement may now rest on this one
+    for (const o of S.dropping) if (o.pl === pl && o.drop.target !== null) {
+      const l2 = Physics.findLanding(o.cells, o.drop.x, o.drop.z);
+      o.drop.land = l2; o.drop.target = l2 + 0.5;
+      if (o.root.position.y < o.drop.target) o.root.position.y = o.drop.target;
+    }
+  } else {
+    pl.allPerfect = false; pl.toppled = true;
+    const fr = Physics.toppleFrame(ev);
+    fr.pivot.y = land;
+    S.falling.push({ root: b.root, mat: b.mat, phase: 'tip', axis: fr.axis, pivot: fr.pivot,
+      basePos: b.root.position.clone(), baseQ: b.root.quaternion.clone(), ang: 0, w: 0.6, vel: null });
+    AudioFX.thunk(); AudioFX.fall();
+  }
+  releaseSpawn();
+  resolveBody(b);
+}
+
+function missBody(b) {
+  b.pl.allPerfect = false;
+  S.falling.push({ root: b.root, mat: b.mat, phase: 'fall', vel: new THREE.Vector3(0, -b.drop.vy, 0),
+    axis: new THREE.Vector3(1, 0, 0.4).normalize(), w: 1.5 });
+  AudioFX.fall();
+  releaseSpawn();
+  resolveBody(b);
+}
+
+function resolveBody(b) {
+  b.pl.done++;
+  if (b.pl.done >= b.pl.total) finishPlacement(b.pl);
+}
+
+// one placement = one piece, however many parts it was cut into
+function finishPlacement(pl) {
+  S.pending = Math.max(0, S.pending - 1);
+  if (pl.predicted) S.predicted = Math.max(0, S.predicted - 1);
+  if (pl.stable > 0) {
+    S.placed++;
+    const perfect = pl.allPerfect && !pl.trimmed;
+    if (perfect) { S.perfects++; for (const b of S.pieces.slice(-pl.stable)) flash(b.mat, 0xfff1c2); AudioFX.perfect(); }
+    const pts = perfect ? CFG.meter.perfect : CFG.meter.success;
+    // the callout always says why a placement did or didn't count
+    const label = perfect ? 'PERFECT' : pl.trimmed ? 'TRIMMED' : 'PLACED';
+    addMeter(pts, label + (pts > 0 ? ' +' + pts : ''), perfect ? 'perfect' : 'good');
+  } else {
+    S.fell++;
+    const kind = pl.allTrimmed ? 'allTrimmed' : pl.toppled ? 'topple' : 'miss';
+    const label = { allTrimmed: 'ALL TRIMMED', topple: 'TOPPLED', miss: 'MISSED' }[kind];
+    const lim = CFG.strikes.limit | 0;
+    if (lim > 0 && CFG.strikes[kind]) { S.strikes++; toast(label + ' · STRIKE ' + S.strikes + '/' + lim, 'bad'); }
+    else toast(label, 'bad');
+  }
+  updateHUD();
+}
+
+function addMeter(pts, text, kind) {
+  toast(text, kind);
+  if (!(pts > 0)) return;
+  const max = Math.max(1, CFG.meter.max | 0);
+  S.meter += pts;
+  meterEl.classList.remove('bump'); void meterEl.offsetWidth; meterEl.classList.add('bump');
+  if (S.meter >= max) {
+    S.meter = 0;
+    const reward = CFG.meter.reward;
+    S.inv[reward] = (S.inv[reward] || 0) + 1;
+    celebrate();
+  }
+}
+
+/* meter-full payoff: flash the meter, send a spark to the powerup button, pop the button */
+function celebrate() {
+  const c = CFG.celebrate, tf = Math.max(0, c.flash), ts = Math.max(0, c.spark), tp = Math.max(0, c.pop);
+  const total = tf + ts + tp;
+  S.celebrateUntil = performance.now() + total * 1000;
+  powerBtn.classList.add('arriving');                      // hold the button's ready look until the spark lands
+  meterEl.classList.add('full');
+  updateHUD();
+  setTimeout(() => {
+    meterEl.classList.remove('full');
+    const a = meterEl.getBoundingClientRect(), b = powerBtn.getBoundingClientRect();
+    const sp = document.createElement('div'); sp.className = 'spark'; appEl.appendChild(sp);
+    const x0 = a.left + a.width / 2, y0 = a.bottom - 6, x1 = b.left + b.width / 2, y1 = b.top + b.height / 2;
+    const anim = sp.animate([
+      { transform: 'translate(' + x0 + 'px,' + y0 + 'px) scale(1)', opacity: 1 },
+      { transform: 'translate(' + x1 + 'px,' + y1 + 'px) scale(0.6)', opacity: 1 }],
+      { duration: Math.max(1, ts * 1000), easing: 'cubic-bezier(.5,0,.8,.4)' });
+    anim.onfinish = () => {
+      sp.remove();
+      powerBtn.classList.remove('arriving');
+      powerBtn.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.14)' }, { transform: 'scale(1)' }],
+        { duration: Math.max(1, tp * 1000), easing: 'ease-out' });
+      AudioFX.power();
+      updateHUD();
+    };
+  }, tf * 1000);
+}
+
+function usePower(kind) {
+  if (!(S.inv[kind] > 0)) return;
+  S.inv[kind]--;
+  S.active[kind] = (S.active[kind] || 0) + POWERUPS[kind].charges();
+  ghost.sig = '';
+  AudioFX.tick();
+  updateHUD();
+}
+
+function updatePiece(dt) {
+  const p = S.piece; if (!p) return;
+  p.born = Math.min(1, p.born + dt / 0.18);
+  const sc = p.born < 1 ? 1 - Math.pow(1 - p.born, 3) : 1;
+  p.root.scale.setScalar(Math.max(0.01, sc));
+  if (p.anim) { p.anim.t += dt; if (p.anim.t >= p.anim.dur) p.anim = null; }
+  const { Q, V } = visState(p);
+  p.body.quaternion.copy(Q); p.body.position.copy(V);
+  Movement.update(p, dt);
+  const [x, z] = Movement.xz(p);
+  p.nudge.multiplyScalar(Math.exp(-18 * dt));
+  p.hoverY += (hoverBaseY() - p.hoverY) * (1 - Math.exp(-6 * dt));
+  p.root.position.set(x + p.nudge.x, p.hoverY + 0.5, z + p.nudge.y);
+}
+
+function updateFalling(dt) {
+  const g = CFG.physics.gravity;
+  for (let i = S.falling.length - 1; i >= 0; i--) {
+    const f = S.falling[i];
+    if (f.phase === 'tip') {
+      if (f.tipDur) {                          // timed hinge (trimmed cubes): reach the release angle in tipDur
+        f.tipT += dt; const u = Math.min(1, f.tipT / f.tipDur);
+        f.ang = 1.06 * u * u; f.w = 2.12 / f.tipDur;
+      } else { f.w += CFG.physics.toppleAccel * dt; f.ang += f.w * dt; }
+      const q = new THREE.Quaternion().setFromAxisAngle(f.axis, f.ang);
+      f.root.position.copy(f.basePos).sub(f.pivot).applyQuaternion(q).add(f.pivot);
+      f.root.quaternion.copy(q).multiply(f.baseQ);
+      if (f.ang > 1.05) {
+        const r = f.root.position.clone().sub(f.pivot);
+        f.vel = f.axis.clone().multiplyScalar(f.w).cross(r);
+        f.phase = 'fall';
+      }
+    } else {
+      f.vel.y -= g * 0.6 * dt;
+      f.root.position.addScaledVector(f.vel, dt);
+      f.root.quaternion.premultiply(new THREE.Quaternion().setFromAxisAngle(f.axis, f.w * dt));
+      let gone = f.root.position.y < -17;
+      if (f.fade !== undefined) {
+        f.fade += dt;
+        const k = Math.max(0, 1 - f.fade / (f.fadeDur || 0.25));
+        f.root.scale.setScalar(k * (2 - k));
+        if (k <= 0) gone = true;
+      }
+      if (gone) { scene.remove(f.root); f.mat.dispose(); S.falling.splice(i, 1); }
+    }
+  }
+}
+
+// Landing Shadow: cubes that stay are a see-through ghost; cubes that will be trimmed are a dashed outline
+function updateGhost(t) {
+  const p = S.piece;
+  const on = p && S.phase === 'aim' && S.active.shadow > 0;
+  if (!on) { ghost.group.visible = false; return; }
+  const [x, z] = Movement.snapped(p);
+  const sig = JSON.stringify(p.cells) + x + ',' + z + ':' + World.occ.size;
+  if (sig !== ghost.sig) {
+    ghost.sig = sig;
+    while (ghost.group.children.length) ghost.group.remove(ghost.group.children[0]);
+    const { comps, cut } = Area.split(p.cells, x, z);
+    let land0 = Physics.findLanding(p.cells, x, z);
+    if (land0 === null && cut.length) land0 = 0;
+    ghost.stable = true;
+    for (const idx of comps) {
+      const cells = idx.map(i => p.cells[i]);
+      const land = cut.length ? Physics.findLanding(cells, x, z) : land0;
+      if (land === null) continue;
+      if (!Physics.evaluate(cells, x, land, z).stable) ghost.stable = false;
+      for (const c of cells) {
+        const m = new THREE.Mesh(cubeGeo, ghost.mat); m.position.set(x + c[0], land + c[1] + 0.5, z + c[2]); m.renderOrder = 2;
+        const l = new THREE.LineSegments(edgeGeo, ghost.line); l.renderOrder = 3; m.add(l);
+        ghost.group.add(m);
+      }
+    }
+    if (land0 !== null) for (const i of cut) {
+      const c = p.cells[i];
+      const l = new THREE.LineSegments(edgeGeo, ghost.cutLine); l.computeLineDistances(); l.renderOrder = 3;
+      l.position.set(x + c[0], land0 + c[1] + 0.5, z + c[2]);
+      ghost.group.add(l);
+    }
+  }
+  let col = p.color;
+  if (CFG.powerups.shadow.showStability) col = ghost.stable ? 0x9be3a6 : 0xff7a66;
+  ghost.mat.color.copy(lin(col));
+  ghost.mat.opacity = 0.38 + 0.1 * Math.sin(t * 5);
+  ghost.group.position.set(0, 0, 0);
+  ghost.group.visible = ghost.group.children.length > 0;
+}
+
+function updateFx(dt) {
+  for (let i = fx.length - 1; i >= 0; i--) {
+    const f = fx[i]; f.t += dt; const k = Math.min(1, f.t / f.dur); f.update(k);
+    if (k >= 1) { f.done(); fx.splice(i, 1); }
+  }
+}
+
+function reset() {
+  for (const p of S.pieces) { scene.remove(p.root); p.mat.dispose(); }
+  for (const f of S.falling) { scene.remove(f.root); f.mat.dispose(); }
+  if (S.piece) { scene.remove(S.piece.root); S.piece.mat.dispose(); }
+  for (const b of S.dropping) { scene.remove(b.root); b.mat.dispose(); }
+  for (const t of S.trims) { scene.remove(t.b.root); t.b.mat.dispose(); }
+  Object.assign(S, { phase: 'wait', piece: null, waitT: 0.3, meter: 0, inv: { shadow: 0 }, active: { shadow: 0 },
+    placed: 0, fell: 0, perfects: 0, pieces: [], falling: [], cubes: 0, box: freshBox(), endT: 0, dropping: [], trims: [], pending: 0, queuedDrop: false, predicted: 0,
+    strikes: 0, paused: false, celebrateUntil: 0 });
+  pauseEl.hidden = true;
+  endEl.hidden = true; controlsEl.hidden = false;
+  const seed = CFG.seed ? CFG.seed : (Math.random() * 2 ** 31) | 0;
+  rng = mulberry32(seed); S.seed = seed;
+  Movement.axisFlip = 0;
+  World.reset(); buildBaseplate(); buildSegs(); updateHUD();
+  ghost.group.visible = false; ghost.sig = ''; lane.key = '';
+}
+
+/* end of run */
+function compactness() {
+  const b = S.box; if (!S.cubes) return 0;
+  const vol = (b.maxX - b.minX + 1) * (b.maxY - b.minY + 1) * (b.maxZ - b.minZ + 1);
+  return S.cubes / vol;
+}
+function endRun(why) {
+  S.phase = 'over';
+  $('endTitle').textContent = why === 'strikes' ? 'OUT OF STRIKES' : 'BUILD COMPLETE';
+  const b = World.bounds;
+  const stats = [
+    ['PLACED', S.placed + '/' + runTotal()], ['FELL', S.fell], (CFG.strikes.limit | 0) > 0 ? ['STRIKES', S.strikes + '/' + (CFG.strikes.limit | 0)] : ['PERFECT', S.perfects],
+    ['HEIGHT', b.topY + 1], ['FOOTPRINT', (b.maxX - b.minX + 1) + '×' + (b.maxZ - b.minZ + 1)],
+    ['COMPACT', Math.round(compactness() * 100) + '%', 'hi'],
+  ];
+  $('endGrid').innerHTML = stats.map(([k, v, c]) => '<div class="' + (c || '') + '"><span>' + k + '</span><b>' + v + '</b></div>').join('');
+  $('endSub').textContent = S.cubes + ' cubes · ' + S.perfects + ' perfect · compact = cubes ÷ their bounding box · drag to change camera angle';
+  controlsEl.hidden = true; endEl.hidden = false; hideHint();
+  AudioFX.power();
+}
+
+/* =====================================================================
+   UI
+   ===================================================================== */
+const $ = id => document.getElementById(id);
+const statsEl = $('stats'), meterEl = $('meter'), segsEl = $('segs'), meterNum = $('meterNum');
+const pauseEl = $('pause'), appEl = $('app');
+const endEl = $('end'), controlsEl = $('controls'), turnBtn = $('turnBtn'), turnLabel = $('turnLabel');
+const powerBtn = $('powerBtn'), placeBtn = $('placeBtn'), tipBtn = $('tipBtn'), toastEl = $('toast'), hintEl = $('hint');
+const shadowSvg = '<svg class="shadow-icon" viewBox="0 0 30 18" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="10" y="1" width="10" height="7" rx="1"/><path d="M15 9v3" stroke-dasharray="1.5 1.5"/><rect x="10" y="12" width="10" height="5" rx="1" stroke-dasharray="2 1.6"/></svg>';
+
+function buildSegs() {
+  const n = Math.max(1, CFG.meter.max | 0);
+  segsEl.innerHTML = '';
+  for (let i = 0; i < n; i++) { const s = document.createElement('div'); s.className = 'seg'; segsEl.appendChild(s); }
+}
+function updateHUD() {
+  const b = World.bounds, max = Math.max(1, CFG.meter.max | 0);
+  if (segsEl.children.length !== max) buildSegs();
+  const celebrating = performance.now() < S.celebrateUntil && meterEl.classList.contains('full');
+  [...segsEl.children].forEach((s, i) => s.classList.toggle('on', celebrating || i < S.meter));
+  meterNum.textContent = (celebrating ? max : Math.min(S.meter, max)) + '/' + max;
+  statsEl.innerHTML =
+    '<span>PIECE</span> <b>' + Math.min(runTotal(), used() + (S.piece ? 1 : 0)) + '/' + runTotal() + '</b> <span>·</span> ' +
+    '<span>PLACED</span> <b>' + S.placed + '</b> <span>· FELL</span> <b>' + S.fell + '</b>' +
+    ' <span>· HEIGHT</span> <b>' + (b.topY + 1) + '</b>' + strikeMarks() + speedTag();
+  const arriving = powerBtn.classList.contains('arriving');
+  const inv = Math.max(0, (S.inv.shadow || 0) - (arriving ? 1 : 0)), act = S.active.shadow || 0;
+
+  powerBtn.classList.toggle('active', act > 0);
+  powerBtn.classList.toggle('ready', act === 0 && inv > 0);
+  powerBtn.classList.toggle('empty', act === 0 && inv === 0);
+  if (act > 0) powerBtn.innerHTML = shadowSvg + 'SHADOW ON<small>' + act + ' placement' + (act === 1 ? '' : 's') + ' left' + (inv ? ' · +' + inv + ' held' : '') + '</small>';
+  else if (inv > 0) powerBtn.innerHTML = shadowSvg + 'USE SHADOW<small>' + inv + ' ready · tap</small>';
+  else powerBtn.innerHTML = shadowSvg + 'SHADOW<small>fill the meter</small>';
+  tipBtn.hidden = !CFG.rotate.allowTip;
+  const p = S.piece, lim = CFG.turn.maxPerPiece | 0, cost = CFG.turn.meterCost | 0;
+  let sub = '';
+  if (lim > 0) sub = Math.max(0, lim - (p ? p.turns : 0)) + ' left';
+  if (cost > 0) sub = (sub ? sub + ' · ' : '') + cost + ' pwr';
+  turnLabel.innerHTML = 'AXIS' + (sub ? '<small> ' + sub + '</small>' : '');
+  turnBtn.classList.toggle('spent', !!p && !canTurn(p));
+}
+function speedTag() {
+  const m = S.piece ? S.piece.speedMul : speedMul(used());
+  return m > 1.001 ? ' <span>· SPEED</span> <b>' + m.toFixed(2) + '×</b>' : '';
+}
+function strikeMarks() {
+  const lim = CFG.strikes.limit | 0; if (lim <= 0) return '';
+  let m = '';
+  for (let i = 0; i < lim; i++) m += i < S.strikes ? '<i class="hit">✕</i>' : '<i>○</i>';
+  return ' <span>·</span> <span class="strk" aria-label="' + S.strikes + ' of ' + lim + ' strikes">' + m + '</span>';
+}
+function toast(text, kind) {
+  toastEl.textContent = text; toastEl.className = 'toast ' + (kind || '');
+  void toastEl.offsetWidth; toastEl.classList.add('show');
+}
+function hideHint() { hintEl.classList.add('gone'); }
+
+// buttons: fire on pointerdown for responsiveness; keyboard activation arrives as click with detail 0
+function bindBtn(el, fn) {
+  el.addEventListener('pointerdown', e => { e.preventDefault(); AudioFX.unlock(); if (S.paused) return; el.classList.add('pressed'); fn(); });
+  const up = () => el.classList.remove('pressed');
+  el.addEventListener('pointerup', up); el.addEventListener('pointerleave', up); el.addEventListener('pointercancel', up);
+  el.addEventListener('click', e => { if (e.detail === 0 && !S.paused) fn(); });
+}
+bindBtn($('rotBtn'), rotateY);
+bindBtn(tipBtn, tip);
+bindBtn(placeBtn, place);
+bindBtn(turnBtn, turn);
+$('againBtn').addEventListener('click', () => reset());
+
+function setPaused(on) {
+  if (on && S.phase === 'over') return;
+  S.paused = on;
+  pauseEl.hidden = !on || !sheet.hidden;
+  controlsEl.hidden = on || S.phase === 'over';
+  if (on) toastEl.className = 'toast';
+}
+$('pauseBtn').addEventListener('click', () => setPaused(!S.paused));
+$('resumeBtn').addEventListener('click', () => setPaused(false));
+$('pRestartBtn').addEventListener('click', () => { reset(); setPaused(false); });
+$('pTuneBtn').addEventListener('click', () => { sheet.hidden = false; pauseEl.hidden = true; });
+document.addEventListener('visibilitychange', () => { if (document.hidden) setPaused(true); });
+window.addEventListener('blur', () => setPaused(true));
+bindBtn(powerBtn, () => usePower('shadow'));
+
+window.addEventListener('keydown', e => {
+  if (e.target.closest && e.target.closest('.sheet')) return;
+  const k = e.key.toLowerCase();
+  if (k === 'p' || k === 'escape') { setPaused(!S.paused); return; }
+  if (S.paused) return;
+  if (k === ' ' || k === 'enter') { e.preventDefault(); place(); }
+  else if (k === 'r') rotateY();
+  else if (k === 'e') turn();
+  else if (k === 't') tip();
+  else if (k === 's') usePower('shadow');
+  else if (k === 'arrowleft') Cam.yaw -= 0.15;
+  else if (k === 'arrowright') Cam.yaw += 0.15;
+  else if (k === 'arrowup') Cam.pitch += 0.1;
+  else if (k === 'arrowdown') Cam.pitch -= 0.1;
+});
+
+/* tuning sheet */
+const TUNE = [
+  ['move.speed', 'Piece speed', 'cells/s', 0.5, 8, 0.1],
+  ['move.margin', 'Travel past edge', 'cells', 0, 6, 1],
+  ['move.hoverGap', 'Hover gap', 'cells', 1, 6, 0.5],
+  ['move.rampTo', 'Speed on last piece', '×', 1, 2.5, 0.05],
+  ['guides.pathLine', 'Show path line', '', 'bool'],
+  ['move.pattern', 'Starting travel axis', '', ['alternate', 'x', 'z']],
+  ['turn.maxPerPiece', 'Axis changes per piece (0 = unlimited)', '', 0, 6, 1],
+  ['turn.meterCost', 'Axis change cost', 'pwr', 0, 6, 1],
+  ['strikes.limit', 'Strike limit (0 = off)', 'strikes', 0, 10, 1],
+  ['strikes.topple', 'Topples count as strikes', '', 'bool'],
+  ['run.pieces', 'Pieces per build', 'pieces', 5, 120, 1],
+  ['buildArea.trim', 'Trim cubes outside baseplate', '', 'bool'],
+  ['buildArea.pause', 'Hold before trim', 's', 0, 1, 0.05],
+  ['buildArea.slice', 'Trim sweep time', 's', 0.05, 0.8, 0.05],
+  ['buildArea.tip', 'Trim tip-over time', 's', 0.05, 0.8, 0.05],
+  ['buildArea.fall', 'Trim fall time', 's', 0.05, 1, 0.05],
+  ['piece.minCells', 'Min cubes per piece', '', 1, 8, 1],
+  ['piece.maxCells', 'Max cubes per piece', '', 1, 8, 1],
+  ['rotate.allowTip', 'Allow flipping', '', 'bool'],
+  ['physics.tolerance', 'Stability slack', 'cells', -0.4, 0.6, 0.05],
+  ['physics.gravity', 'Drop gravity', 'cells/s²', 5, 90, 1],
+  ['meter.max', 'Meter size', 'pts', 1, 20, 1],
+  ['meter.success', 'Points: placed (not perfect)', 'pts', 0, 6, 1],
+  ['meter.perfect', 'Points: perfect', 'pts', 0, 10, 1],
+  ['perfect.minSupport', 'Perfect needs underside supported', '', 0.5, 1, 0.05],
+  ['powerups.shadow.placements', 'Landing Shadow lasts', 'placements', 1, 20, 1],
+  ['celebrate.flash', 'Meter-full flash', 's', 0, 0.4, 0.05],
+  ['celebrate.spark', 'Meter-full spark', 's', 0, 0.5, 0.05],
+  ['celebrate.pop', 'Meter-full pop', 's', 0, 0.5, 0.05],
+  ['powerups.shadow.showStability', 'Shadow shows stable/unstable', '', 'bool'],
+  ['camera.sens', 'Camera drag sensitivity', '', 0.002, 0.02, 0.0005],
+  ['baseplate.w', 'Baseplate width', 'cells', 1, 12, 1, 'restart'],
+  ['baseplate.d', 'Baseplate depth', 'cells', 1, 12, 1, 'restart'],
+];
+const getP = path => path.split('.').reduce((o, k) => o[k], CFG);
+const setP = (path, v) => { const ks = path.split('.'), last = ks.pop(); ks.reduce((o, k) => o[k], CFG)[last] = v; };
+function fmt(v, step) { return step < 1 ? (+v).toFixed(String(step).split('.')[1].length) : String(v); }
+function buildTune() {
+  const grid = $('tuneGrid');
+  TUNE.forEach(([path, label, unit, a, b, step, note], i) => {
+    const row = document.createElement('div'); row.className = 'row'; const id = 'tune-' + path.replace(/\./g, '-');
+    const val = getP(path);
+    if (b === undefined && a === 'bool') {
+      row.innerHTML = '<label for="' + id + '">' + label + '</label><input type="checkbox" id="' + id + '"' + (val ? ' checked' : '') + '>';
+      row.querySelector('input').addEventListener('change', e => { setP(path, e.target.checked); updateHUD(); ghost.sig = ''; });
+    } else if (Array.isArray(a)) {
+      row.innerHTML = '<label for="' + id + '">' + label + '</label><select id="' + id + '">' + a.map(o => '<option' + (o === val ? ' selected' : '') + '>' + o + '</option>').join('') + '</select>';
+      row.querySelector('select').addEventListener('change', e => setP(path, e.target.value));
+    } else {
+      row.innerHTML = '<label for="' + id + '">' + label + '</label><output>' + fmt(val, step) + (unit ? ' ' + unit : '') + '</output>' +
+        '<input type="range" id="' + id + '" min="' + a + '" max="' + b + '" step="' + step + '" value="' + val + '">' +
+        (note === 'restart' ? '<span class="note">applies on restart</span>' : '');
+      const out = row.querySelector('output');
+      row.querySelector('input').addEventListener('input', e => {
+        const v = parseFloat(e.target.value); setP(path, v); out.textContent = fmt(v, step) + (unit ? ' ' + unit : '');
+        if (path.startsWith('meter.')) S.meter = Math.min(S.meter, Math.max(1, CFG.meter.max | 0) - 1);
+        updateHUD();
+      });
+    }
+    grid.appendChild(row);
+  });
+}
+buildTune();
+const sheet = $('sheet');
+$('gearBtn').addEventListener('click', () => {
+  if (sheet.hidden) { sheet.hidden = false; if (S.phase !== 'over') { S.paused = true; controlsEl.hidden = true; } pauseEl.hidden = true; }
+  else { sheet.hidden = true; if (S.paused) setPaused(true); }
+});
+$('closeSheet').addEventListener('click', () => { sheet.hidden = true; if (S.paused) setPaused(true); });
+$('grantBtn').addEventListener('click', () => { S.inv.shadow = (S.inv.shadow || 0) + 1; updateHUD(); toast('LANDING SHADOW +1', 'power'); });
+$('fillBtn').addEventListener('click', () => { S.meter = Math.max(0, Math.max(1, CFG.meter.max | 0) - 1); updateHUD(); });
+$('restartBtn').addEventListener('click', () => { reset(); sheet.hidden = true; setPaused(false); });
+
+/* =====================================================================
+   LOOP
+   ===================================================================== */
+function resize() {
+  const w = window.innerWidth, h = window.innerHeight;
+  renderer.setSize(w, h, false); camera.aspect = w / h;
+  camera.fov = w < h ? 50 : 40; camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize);
+
+let last = performance.now(), clock = 0;
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  if (S.paused) Cam.update(dt); else { clock += dt; step(dt); }
+  renderer.render(scene, camera);
+  requestAnimationFrame(frame);
+}
+function step(dt) {
+  const lim = CFG.strikes.limit | 0;
+  const out = lim > 0 && S.strikes >= lim;
+  // safety net: a strike that only resolved after the next piece appeared still ends the run now
+  if (out && S.phase === 'aim' && S.piece) { vanish(S.piece); S.piece = null; S.phase = 'wait'; S.queuedDrop = false; }
+  if (S.phase === 'wait') {
+    S.waitT -= dt;
+    const outSoon = lim > 0 && S.strikes + S.predicted >= lim;   // the piece in flight is a known final strike
+    const settled = S.falling.length === 0 && S.pending === 0;
+    if (out || used() >= runTotal()) {       // out of strikes or pieces: end once everything has settled
+      if (settled) { S.endT += dt; if (S.endT > 0.6) endRun(out ? 'strikes' : 'complete'); }
+    } else if (!outSoon && S.waitT <= 0) spawn();
+  }
+  if (S.phase === 'aim') updatePiece(dt);
+  updateDropping(dt);
+  updateTrims(dt);
+  if (S.queuedDrop && S.pending === 0) { S.queuedDrop = false; place(); }
+  updateFalling(dt);
+  updateFx(dt);
+  updateGhost(clock);
+  updateLane(clock);
+  Cam.update(dt);
+}
+
+reset();
+resize();
+Cam.update(1);
+requestAnimationFrame(frame);
+
+/* debug handle for tuning and automated checks */
+window.STACKER = { CFG, S, World, Physics, Movement, Cam, place, rotate: rotateY, tip, turn, setPaused, celebrate: () => { S.inv.shadow = (S.inv.shadow || 0) + 1; celebrate(); }, usePower, reset,
+  step(n, dt, noRender) { for (let i = 0; i < n; i++) step(dt || 1 / 60); if (!noRender) renderer.render(scene, camera); } };
+})();
+</script>
+</body>
+</html>
