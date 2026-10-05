@@ -6,7 +6,14 @@ Every number lives in `src/config.js` and is a placeholder to tune, not a final 
 
 ## Scope so far
 
-The prototype is the core stacking interaction only. Not built yet: blueprints and levels, a tutorial, a speed-building mode, density grading, coins, cosmetics and monetization.
+The prototype includes the core stacking interaction, Asterra opening story, guided tutorial, and one building contract (the Lantern House). The first contract adds a blueprint, density grading, saved coins, and a per-build amber-light cosmetic. Further contracts, saved buildings, a customization catalog, speed-building mode, and monetization are not built yet.
+
+## Asterra onboarding and first contract
+
+- The opening is player-paced: create a contractor → thriving city → earthquake → aftermath → rebuilding role → blueprint → density/rewards → invitation → training. It uses a procedural geometric miniature and a blue-green nighttime palette with amber light. Reduced motion replaces the earthquake movement with its settled aftermath.
+- Training starts with animated controls and then an exact footprint challenge. The initial challenge leaves the transformations for the player to discover. After 6 seconds without progress a contextual observation appears; after 13 seconds it names the relevant control. Advancing toward a solution resets the hint delay.
+- Lantern House has a fixed 5 × 5 × 3 blueprint. Density counts occupied cells inside its 75-cell volume, so a narrow tower cannot receive a perfect score. At least 45 filled cells (60%) completes the contract. The existing 30-tile budget, strikes, movement, and physics remain in effect.
+- Coins are filled cells plus `floor(50 × density²)`, paid once when the run ends, including partial builds. A 20-coin amber-light upgrade decorates that run’s building. Coins and onboarding save locally; buildings and their cosmetics currently last for the run only.
 
 ## Controls
 

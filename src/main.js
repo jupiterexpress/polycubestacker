@@ -11,8 +11,11 @@ import { Movement } from './movement.js';
 import { renderer, scene, camera } from './scene.js';
 import { Cam, initCameraInput } from './camera.js';
 import { S } from './state.js';
-import { step, advanceClock, reset, place, rotateY, tip, turn, usePower } from './game.js';
+import { step, advanceClock, reset, spawn, place, rotateY, tip, turn, usePower } from './game.js';
 import { initUI, setPaused, celebrate } from './ui.js';
+import { Tutorial } from './tutorial.js';
+import { Opening, readSave } from './opening.js';
+import { Contract } from './contract.js';
 
 /* =====================================================================
    LOOP
@@ -26,7 +29,8 @@ function resize() {
 let last = performance.now();
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
-  if (S.paused) Cam.update(dt); else { advanceClock(dt); step(dt); }
+  if (Opening.active) { Opening.render(dt); requestAnimationFrame(frame); return; }
+  if (S.paused || S.screen) Cam.update(dt); else { advanceClock(dt); step(dt); }
   renderer.render(scene, camera);
   requestAnimationFrame(frame);
 }
@@ -34,12 +38,17 @@ function frame(now) {
 window.addEventListener('resize', resize);
 initUI();
 initCameraInput();
+Tutorial.init({ reset, spawn, startContract: () => Contract.brief() });
+Contract.init({ reset });
+Opening.init({ reset, tutorial: () => Tutorial.start() });
 
-reset();
+if (readSave('asterra-opening-complete') !== '1') Opening.start();
+else if (readSave('polycube-tutorial-complete') !== '1') Tutorial.start();
+else Contract.brief();
 resize();
 Cam.update(1);
 requestAnimationFrame(frame);
 
 /* debug handle for tuning and automated checks */
-window.STACKER = { CFG, S, World, Physics, Movement, Cam, camera: () => camera, place, rotate: rotateY, tip, turn, setPaused, celebrate: () => { S.inv.shadow = (S.inv.shadow || 0) + 1; celebrate(); }, usePower, reset,
+window.STACKER = { CFG, S, World, Physics, Movement, Cam, Tutorial, Opening, Contract, camera: () => camera, place, rotate: rotateY, tip, turn, setPaused, celebrate: () => { S.inv.shadow = (S.inv.shadow || 0) + 1; celebrate(); }, usePower, reset,
   step(n, dt, noRender) { for (let i = 0; i < n; i++) step(dt || 1 / 60); if (!noRender) renderer.render(scene, camera); } };

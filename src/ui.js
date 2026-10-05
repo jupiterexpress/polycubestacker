@@ -5,6 +5,8 @@ import { Cam } from './camera.js';
 import { ghost } from './guides.js';
 import { S, used, runTotal, speedMul } from './state.js';
 import { place, rotateY, tip, turn, canTurn, usePower, reset, compactness } from './game.js';
+import { Tutorial } from './tutorial.js';
+import { Contract } from './contract.js';
 
 /* =====================================================================
    UI
@@ -22,6 +24,7 @@ export function buildSegs() {
   for (let i = 0; i < n; i++) { const s = document.createElement('div'); s.className = 'seg'; segsEl.appendChild(s); }
 }
 export function updateHUD() {
+  Contract.update();
   const b = World.bounds, max = Math.max(1, CFG.meter.max | 0);
   if (segsEl.children.length !== max) buildSegs();
   const celebrating = performance.now() < S.celebrateUntil && meterEl.classList.contains('full');
@@ -73,6 +76,8 @@ function bindBtn(el, fn) {
 }
 
 export function setPaused(on) {
+  if (S.screen) return;
+  if (Tutorial.mode === 'overview' || Tutorial.mode === 'complete') return;
   if (on && S.phase === 'over') return;
   S.paused = on;
   pauseEl.hidden = !on || !sheet.hidden;
@@ -191,6 +196,13 @@ export function endRun(why) {
   ];
   $('endGrid').innerHTML = stats.map(([k, v, c]) => '<div class="' + (c || '') + '"><span>' + k + '</span><b>' + v + '</b></div>').join('');
   $('endSub').textContent = S.cubes + ' cubes · ' + S.perfects + ' perfect · compact = cubes ÷ their bounding box · drag to change camera angle';
+  const contract = Contract.finish();
+  if (contract) {
+    $('endTitle').textContent = contract.complete ? 'CONTRACT COMPLETE' : 'A FOUNDATION TO BUILD ON';
+    $('endSub').textContent = `${contract.density}% density · +${contract.reward} coins earned. ${contract.complete ? 'The Lantern House brings Asterra together.' : 'Aim for 60% to finish the Lantern House.'}`;
+    $('endGrid').innerHTML = [['DENSITY', contract.density + '%'], ['TARGET', '60%'], ['COINS', '+' + contract.reward]].map(([k, v]) => `<div class="hi"><span>${k}</span><b>${v}</b></div>`).join('');
+  }
+  $('againBtn').textContent = contract ? 'REBUILD LANTERN HOUSE' : 'BUILD AGAIN';
   controlsEl.hidden = true; endEl.hidden = false; hideHint();
   AudioFX.power();
 }
@@ -202,17 +214,20 @@ export function initUI() {
   bindBtn(tipBtn, tip);
   bindBtn(placeBtn, place);
   bindBtn(turnBtn, turn);
-  $('againBtn').addEventListener('click', () => reset());
+  $('againBtn').addEventListener('click', () => Contract.active ? Contract.start() : reset());
   $('pauseBtn').addEventListener('click', () => setPaused(!S.paused));
   $('resumeBtn').addEventListener('click', () => setPaused(false));
-  $('pRestartBtn').addEventListener('click', () => { reset(); setPaused(false); });
+  $('pRestartBtn').addEventListener('click', () => { if (Tutorial.mode === 'challenge') Tutorial.challenge(); else if (Contract.active) Contract.start(); else reset(); setPaused(false); });
+  $('tutorialReplay').addEventListener('click', () => Tutorial.start());
   $('pTuneBtn').addEventListener('click', () => { sheet.hidden = false; pauseEl.hidden = true; });
   document.addEventListener('visibilitychange', () => { if (document.hidden) setPaused(true); });
   window.addEventListener('blur', () => setPaused(true));
   bindBtn(powerBtn, () => usePower('shadow'));
   window.addEventListener('keydown', e => {
-    if (e.target.closest && e.target.closest('.sheet')) return;
+    if (S.screen || (e.target.closest && e.target.closest('.sheet, input, textarea'))) return;
     const k = e.key.toLowerCase();
+    if ((k === ' ' || k === 'enter') && e.target.closest?.('button')) return;
+    if (Tutorial.mode === 'overview' || Tutorial.mode === 'complete') return;
     if (k === 'p' || k === 'escape') { setPaused(!S.paused); return; }
     if (S.paused) return;
     if (k === ' ' || k === 'enter') { e.preventDefault(); place(); }
@@ -233,5 +248,5 @@ export function initUI() {
   $('closeSheet').addEventListener('click', () => { sheet.hidden = true; if (S.paused) setPaused(true); });
   $('grantBtn').addEventListener('click', () => { S.inv.shadow = (S.inv.shadow || 0) + 1; updateHUD(); toast('LANDING SHADOW +1', 'power'); });
   $('fillBtn').addEventListener('click', () => { S.meter = Math.max(0, Math.max(1, CFG.meter.max | 0) - 1); updateHUD(); });
-  $('restartBtn').addEventListener('click', () => { reset(); sheet.hidden = true; setPaused(false); });
+  $('restartBtn').addEventListener('click', () => { if (Tutorial.mode === 'challenge') Tutorial.challenge(); else if (Contract.active) Contract.start(); else reset(); sheet.hidden = true; setPaused(false); });
 }

@@ -4,6 +4,7 @@ import { CFG } from './config.js';
    GAME STATE — everything about the current run
    ===================================================================== */
 export const S = {
+  screen: '',
   phase: 'wait', piece: null, waitT: 0.3,
   meter: 0, inv: { shadow: 0 }, active: { shadow: 0 },
   placed: 0, fell: 0, perfects: 0, pieces: [], falling: [], strikes: 0, paused: false,

@@ -1,15 +1,15 @@
-  /* Single deliberate look: overcast site daylight. Colors are set explicitly, no theme switch. */
+  /* Moonlit Asterra: deep blue-green, mineral colors and warm amber accents. */
   :root {
     --ink: #17202b;
-    --glass: rgba(21, 29, 39, 0.80);
+    --glass: rgba(19, 44, 51, 0.90);
     --glass-edge: rgba(255, 255, 255, 0.10);
     --paper: #eef1ec;
     --muted: #93a1ac;
     --accent: #f06a24;
     --accent-dark: #c2501a;
     --amber: #f2b233;
-    --sky-top: #8ea5b6;
-    --sky-bottom: #e2e5de;
+    --sky-top: #102a32;
+    --sky-bottom: #42615b;
     --good: #7fc28a;
     --bad: #e46a55;
     --display: "Barlow Condensed", "Arial Narrow", "Roboto Condensed", system-ui, sans-serif;
@@ -63,7 +63,7 @@
   .strk i { font-style: normal; color: var(--muted); }
   .strk i.hit { color: var(--bad); }
   /* pause card */
-  .pause { position: absolute; inset: 0; display: grid; place-items: center; padding: 0 16px; pointer-events: none;
+  .pause { position: absolute; inset: 0; z-index: 10; display: grid; place-items: center; padding: 0 16px; pointer-events: none;
     background: rgba(18, 25, 34, 0.18); }
   .pause-card { pointer-events: auto; width: 100%; max-width: 300px; padding: 18px 16px 16px; box-sizing: border-box;
     background: rgba(18, 25, 34, 0.92); display: grid; gap: 10px; text-align: center; }
@@ -150,7 +150,7 @@
   .again:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--accent-dark); }
 
   /* ---------- tuning sheet ---------- */
-  .sheet { position: absolute; left: 0; right: 0; bottom: 0; max-height: 72%; overflow-y: auto;
+  .sheet { position: absolute; z-index: 11; left: 0; right: 0; bottom: 0; max-height: 72%; overflow-y: auto;
     background: rgba(18, 25, 34, 0.95); border-top: 1px solid var(--glass-edge); border-radius: 16px 16px 0 0;
     padding: 14px 16px calc(env(safe-area-inset-bottom, 0px) + 16px); color: var(--paper); }
   .sheet header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 4px; }
@@ -170,7 +170,144 @@
   .sheet button.s.primary { background: var(--accent); border-color: transparent; }
   .close { background: none; border: none; color: var(--muted); font-size: 14px; font-weight: 700; letter-spacing: 0.08em; cursor: pointer; }
 
+  /* ---------- first-run tutorial ---------- */
+  .tutorial-screen { position: absolute; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center;
+    overflow-y: auto; padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+    box-sizing: border-box; background: rgba(17, 25, 35, 0.68); }
+  .tutorial-card { width: min(100%, 620px); padding: 22px; box-sizing: border-box; background: rgba(21, 29, 39, 0.97);
+    box-shadow: 0 20px 60px rgba(0,0,0,0.28); }
+  .tutorial-kicker { display: block; font-family: var(--mono); color: var(--amber); font-size: 10px; letter-spacing: 0.1em; }
+  .tutorial-card h1, .tutorial-card h2 { margin: 5px 0 3px; font-size: clamp(30px, 8vw, 44px); line-height: 1; letter-spacing: 0.06em; }
+  .tutorial-card p { margin: 0 0 16px; font-family: var(--mono); font-size: 11px; line-height: 1.5; color: #c0cbd0; }
+  .tutorial-demos { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 16px; }
+  .tutorial-demo { position: relative; min-width: 0; padding: 7px 9px 9px; display: grid; justify-items: center; gap: 1px;
+    border: 1px solid rgba(255,255,255,0.12); border-radius: 9px; background: #263544; text-align: center; }
+  .demo-stage { width: 100%; height: 75px; }
+  .demo-stage svg { display: block; width: 100%; height: 100%; overflow: visible; }
+  .demo-tile rect { fill: #dfa747; stroke: #f6d280; stroke-width: 1.5; rx: 2; }
+  .demo-target rect { fill: rgba(255,207,90,0.14); stroke: #ffcf5a; stroke-width: 1.5; stroke-dasharray: 3 2; rx: 2; }
+  .demo-path { fill: none; stroke: #b6c8ce; stroke-width: 2; stroke-dasharray: 3 4; }
+  .tutorial-demo strong { font-size: 15px; letter-spacing: 0.1em; }
+  .tutorial-demo span { font-family: var(--mono); font-size: 9px; line-height: 1.3; color: #c0cbd0; }
+  .tutorial-demo kbd { position: absolute; right: 7px; top: 7px; padding: 2px 4px; border-radius: 3px;
+    background: rgba(0,0,0,0.24); color: #d7e1e4; font-family: var(--mono); font-size: 9px; }
+  .demo-rotate { transform-box: fill-box; transform-origin: center; animation: tutorial-rotate 2.2s ease-in-out infinite; }
+  .demo-flip { transform-box: fill-box; transform-origin: center; animation: tutorial-flip 2.2s ease-in-out infinite; }
+  .demo-axis { animation: tutorial-axis 2.6s ease-in-out infinite; }
+  .demo-drop { animation: tutorial-drop 2s ease-in infinite; }
+  @keyframes tutorial-rotate { 0%, 18% { transform: rotate(0); } 58%, 78% { transform: rotate(90deg); } 100% { transform: rotate(0); } }
+  @keyframes tutorial-flip { 0%, 20% { transform: scaleY(1) skewX(0); } 48% { transform: scaleY(0.13) skewX(-20deg); } 72%, 88% { transform: scaleY(-1) skewX(0); } 100% { transform: scaleY(1); } }
+  @keyframes tutorial-axis { 0%, 16% { transform: translate(-18px, 0); } 43% { transform: translate(18px, 0); } 55% { transform: translate(0, 0); } 78% { transform: translate(0, -18px); } 100% { transform: translate(0, 0); } }
+  @keyframes tutorial-drop { 0%, 22% { transform: translateY(0); } 58%, 76% { transform: translateY(37px); } 100% { transform: translateY(0); } }
+  .tutorial-primary { width: 100%; min-height: 52px; border-radius: 12px; background: var(--accent);
+    box-shadow: 0 4px 0 var(--accent-dark); font-size: 20px; }
+  .tutorial-challenge { position: absolute; z-index: 5; top: calc(env(safe-area-inset-top, 0px) + 100px); left: 50%;
+    transform: translateX(-50%); width: min(330px, calc(100% - 32px)); padding: 9px 12px; box-sizing: border-box;
+    background: rgba(21, 29, 39, 0.91); text-align: center; pointer-events: auto; }
+  .tutorial-challenge strong { display: block; margin-top: 2px; font-size: 18px; letter-spacing: 0.1em; }
+  .tutorial-challenge p { margin: 3px 0 0; font-family: var(--mono); font-size: 10px; line-height: 1.35; color: #e1e7e6; }
+  .tutorial-challenge .tutorial-hint { margin-top: 7px; padding: 6px; border-radius: 5px; background: rgba(242,178,51,0.17); color: #ffe0a0; }
+  .tutorial-challenge button { margin-top: 6px; border: 0; background: none; color: var(--muted); font-size: 10px;
+    font-weight: 700; letter-spacing: 0.08em; cursor: pointer; }
+  .tutorial-finish { max-width: 390px; text-align: center; }
+  .tutorial-finish p { margin: 9px 0 22px; }
+
   @media (prefers-reduced-motion: reduce) {
     .toast.show { animation-duration: 0.01s; opacity: 1; }
     .power.ready, .meter.bump { animation: none; }
+    .demo-rotate, .demo-flip, .demo-axis, .demo-drop { animation: none; }
+  }
+
+  /* ---------- Asterra opening ---------- */
+  .opening { position: absolute; inset: 0; z-index: 30; display: grid; grid-template-columns: 59% 41%;
+    padding: 96px 5vw 64px 0; box-sizing: border-box; overflow-y: auto;
+    background: radial-gradient(ellipse at 28% 60%, #315650 0, #18383c 38%, #102730 75%); }
+  #openingCanvas { width: 100%; height: 100%; min-height: 0; align-self: stretch; cursor: pointer; }
+  .opening-header { position: absolute; top: max(30px, env(safe-area-inset-top)); left: 4vw; right: 4vw;
+    display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+  .asterra-wordmark { font-family: var(--display); font-size: 25px; font-weight: 600; letter-spacing: 0.25em; color: #e3e7cf; }
+  .opening-edition { font-family: var(--mono); font-size: 10px; letter-spacing: 0.18em; color: #9eb6ad; }
+  .opening-copy { align-self: center; width: 100%; max-width: 450px; padding: 32px 0; box-sizing: border-box; }
+  .opening-chapter { display: flex; gap: 12px; align-items: center; color: #c7bd91; font: 9px var(--mono); letter-spacing: 0.1em; }
+  .chapter-line { flex: 0 0 32px; height: 1px; background: #688b7b; }
+  .opening h1 { font-size: clamp(40px, 4.8vw, 76px); line-height: 0.98; font-weight: 600; letter-spacing: 0.015em;
+    color: #edf0df; margin: 24px 0 20px; white-space: pre-line; overflow-wrap: anywhere; }
+  #openingText { font-size: clamp(18px, 1.6vw, 22px); font-weight: 500; line-height: 1.55; color: #b9cdc3;
+    white-space: pre-line; margin: 0 0 28px; max-width: 38ch; }
+  #openingText:empty { display: none; }
+  #openingText strong { font-weight: 600; color: #f4cd8a; }
+  #contractorForm label { display: block; color: #c9d6c8; font-size: 21px; margin-bottom: 14px; }
+  .contractor-field { display: flex; align-items: center; border-bottom: 1px solid #6e9585; background: #a4c6a709;
+    padding: 0 14px; margin-bottom: 8px; }
+  .contractor-field input { min-width: 0; width: 100%; border: 0; outline: none; background: transparent; color: #f2e6c9;
+    font: 500 24px var(--display); padding: 16px 0; user-select: text; -webkit-user-select: text; }
+  .contractor-field:focus-within { border-color: #f4ca87; box-shadow: 0 1px #f4ca87; }
+  .contractor-field input::placeholder { color: #78998e; }
+  .contractor-field span { color: #c1ab7c; font-size: 24px; }
+  .name-error { min-height: 16px; margin: 4px 0 12px; color: #f7bd9e; font-size: 14px; }
+  .story-primary { display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 56px;
+    background: #eac38a; color: #19383c; border: 1px solid #ffe1ab; border-radius: 3px; padding: 15px 22px;
+    font-size: 17px; font-weight: 700; letter-spacing: 0.12em; cursor: pointer; box-shadow: 0 5px 26px #eac38a13; }
+  .story-primary:hover { background: #f8d69f; }
+  .story-primary:active { transform: translateY(1px); }
+  .story-primary:focus-visible, #openingBack:focus-visible { outline: 2px solid #fce4bb; outline-offset: 5px; }
+  .opening-footer { display: flex; align-items: center; gap: 16px; margin-top: 20px; min-height: 18px; }
+  .opening-footer span { font-size: 12px; color: #8ea99f; }
+  #openingBack { color: #b1c8b9; background: none; border: 0; font: 10px var(--mono); padding: 4px 0; cursor: pointer; }
+  .opening-location { position: absolute; bottom: 78px; left: 4vw; display: grid; gap: 7px;
+    font: 9px var(--mono); letter-spacing: 0.1em; color: #a8c2b2; pointer-events: none; }
+  .opening-location span + span { font-size: 8px; color: #728f86; }
+  .opening-progress { position: absolute; bottom: max(26px, env(safe-area-inset-bottom)); left: 4vw; right: 4vw; display: flex; gap: 8px; }
+  .opening-progress span { height: 2px; background: #49685e; flex: 1; }
+  .opening-progress .visited { background: #eac38a; }
+  .opening-active .hud-top, .opening-active #hint, .opening-active #scene { visibility: hidden; }
+  .contract-card { max-width: 440px; background: #142e36; border-color: #59796c; border-radius: 5px; padding: 26px; }
+  .contract-card h1 { font-size: 37px; line-height: 1; margin: 14px 0 8px; letter-spacing: 0.03em; }
+  .contract-card p { font-family: var(--display); font-size: 17px; color: #bed2c8; line-height: 1.4; }
+  .blueprint-art { border: 1px solid #7ccfbd40; background-color: #1a4147; padding: 10px 14px;
+    background-image: linear-gradient(#a2d9c909 1px, transparent 1px), linear-gradient(90deg, #a2d9c909 1px, transparent 1px); background-size: 16px 16px; }
+  .blueprint-art svg { display: block; width: 100%; height: 150px; stroke: #b6e8d4; stroke-width: 1.3; }
+  .blueprint-back { stroke-dasharray: 3 4; opacity: 0.5; }
+  .blueprint-art span { display: block; font: 9px var(--mono); color: #98c6ba; text-align: center; margin-top: 10px; }
+  .contract-specs { display: grid; grid-template-columns: 1fr 1fr; margin: 18px 0; gap: 18px; }
+  .contract-specs div { display: grid; gap: 5px; }
+  .contract-specs span { font: 9px var(--mono); color: #93b5a8; }
+  .contract-specs strong { font-size: 23px; color: #f2d297; font-weight: 500; }
+  .contract-hud { position: absolute; top: calc(env(safe-area-inset-top, 0px) + 105px); left: 16px; right: 16px;
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 5px 10px; padding: 10px 12px;
+    color: #a8c4b6; font: 9px var(--mono); pointer-events: none; }
+  .contract-hud strong { color: #f2d297; font-weight: 500; }
+  .finish-upgrade { width: 100%; min-height: 44px; background: #2e5651; border-radius: 10px; margin: 14px 0 8px; }
+  .finish-upgrade:disabled { opacity: 0.45; cursor: default; }
+  .tutorial-card { background: #152f37; }
+  .tutorial-demo { background: #23424a; }
+  .tutorial-primary { background: #eac38a; color: #19383c; box-shadow: 0 4px 0 #a58050; }
+  .tutorial-kicker { color: #eac38a; }
+  @media (max-width: 700px) {
+    .opening { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(160px, 1fr) auto;
+      padding: max(68px, calc(env(safe-area-inset-top) + 42px)) 24px max(42px, calc(env(safe-area-inset-bottom) + 20px)); }
+    .opening-header { top: max(22px, env(safe-area-inset-top)); left: 24px; right: 24px; }
+    .asterra-wordmark { font-size: 21px; }
+    .opening-edition { font-size: 7px; letter-spacing: 0.08em; }
+    .opening-copy { max-width: 500px; justify-self: center; padding: 0; }
+    .opening h1 { font-size: clamp(32px, 9.4vw, 48px); margin: 15px 0 13px; }
+    .opening-chapter { font-size: 8px; gap: 9px; }
+    .chapter-line { flex-basis: 22px; }
+    #openingText { font-size: 18px; line-height: 1.4; margin-bottom: 20px; }
+    #contractorForm label { font-size: 18px; margin-bottom: 8px; }
+    .contractor-field input { padding: 12px 0; font-size: 22px; }
+    .opening-footer { margin-top: 14px; gap: 12px; }
+    .opening-footer span { font-size: 11px; }
+    .opening-location { display: none; }
+    .opening-progress { left: 24px; right: 24px; bottom: max(20px, env(safe-area-inset-bottom)); gap: 5px; }
+    .story-primary { min-height: 50px; padding: 12px 18px; font-size: 16px; }
+    .contract-card { padding: 22px; }
+  }
+  @media (max-height: 620px) and (min-width: 701px) {
+    .opening { padding-top: 60px; padding-bottom: 36px; }
+    .opening h1 { font-size: 36px; margin: 12px 0; }
+    #openingText { font-size: 17px; line-height: 1.35; margin-bottom: 16px; }
+    .opening-copy { padding: 10px 0; }
+    .opening-header { top: 16px; }
+    .opening-location { bottom: 48px; }
   }

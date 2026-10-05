@@ -12,12 +12,12 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputEncoding = THREE.sRGBEncoding;
 
 export const scene = new THREE.Scene();
-scene.fog = new THREE.Fog(0xdde1da, 34, 80);
+scene.fog = new THREE.Fog(0x294b49, 34, 80);
 export const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 220);
 
 // Two lights: an angled key light shades the blocks (lit tops, darker sides) but casts no shadow;
 // a straight-down light casts every shadow, so a hovering piece's shadow sits exactly on the squares below it.
-scene.add(new THREE.HemisphereLight(0xe8f0f5, 0x6d665a, 0.58));
+scene.add(new THREE.HemisphereLight(0xc3e0eb, 0x37534b, 0.7));
 export const sun = new THREE.DirectionalLight(0xfff2de, 0.5);
 sun.castShadow = false;
 scene.add(sun, sun.target);
@@ -88,5 +88,5 @@ export function buildBaseplate() {
   plinth.position.set(cx, -10, cz); plinth.receiveShadow = false;   // shadows only on the plate and blocks
   baseGroup.add(slab, plinth);
 }
-const ground = new THREE.Mesh(new THREE.CircleGeometry(90, 48), new THREE.MeshStandardMaterial({ color: lin(0xbfc4bb), roughness: 1 }));
+const ground = new THREE.Mesh(new THREE.CircleGeometry(90, 48), new THREE.MeshStandardMaterial({ color: lin(0x385850), roughness: 1 }));
 ground.rotation.x = -Math.PI / 2; ground.position.y = -19; ground.receiveShadow = false; scene.add(ground);

@@ -12,6 +12,8 @@ import { fx, dustRing, flash, sliceFx, updateFx, vanish } from './fx.js';
 import { Cam } from './camera.js';
 import { AudioFX } from './audio.js';
 import { S, freshBox, used, runTotal, speedMul } from './state.js';
+import { Tutorial } from './tutorial.js';
+import { Contract } from './contract.js';
 import { updateHUD, buildSegs, toast, hideHint, celebrate, endRun, meterEl, pauseEl, endEl, controlsEl } from './ui.js';
 
 /* =====================================================================
@@ -23,11 +25,12 @@ const Y_AXIS = new THREE.Vector3(0, 1, 0);
 
 export function hoverBaseY() { return World.bounds.topY + 1 + CFG.move.hoverGap; }
 
-export function spawn() {
-  const base = Poly.generate();
+export function spawn(baseOverride = null) {
+  const base = baseOverride || Poly.generate();
   const stances = stancesOf(base);
   // arrive in the flattest resting side (random facing), or as generated
-  const q0 = CFG.piece.spawnFlat ? stances[0].rots[Math.floor(rng() * stances[0].rots.length)].clone() : new THREE.Quaternion();
+  const q0 = baseOverride ? new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2)
+    : CFG.piece.spawnFlat ? stances[0].rots[Math.floor(rng() * stances[0].rots.length)].clone() : new THREE.Quaternion();
   const cells = applyRot(q0, base);
   const color = PALETTE[Math.floor(rng() * PALETTE.length)];
   const mat = new THREE.MeshStandardMaterial({ color: lin(color), roughness: 0.62, metalness: 0.04, emissive: 0x000000 });
@@ -53,7 +56,7 @@ function visState(p) {
 
 
 
-export function rotatePiece(axis, angle) {
+export function rotatePiece(axis, angle, action = 'rotate') {
   const p = S.piece; if (!p || S.phase !== 'aim') return;
   const { cells, s } = Poly.rotate(p.cells, axis, angle);
   const R = new THREE.Quaternion().setFromAxisAngle(axis, angle);
@@ -65,6 +68,7 @@ export function rotatePiece(axis, angle) {
   p.cells = cells;
   cells.forEach((c, i) => p.meshes[i].position.set(c[0], c[1], c[2]));
   AudioFX.tick();
+  Tutorial.onAction(action);
 }
 export function rotateY() { rotatePiece(Y_AXIS, Math.PI / 2); }
 // FLIP: move to the next resting side in this shape's fixed order (flattest first), keeping the
@@ -81,7 +85,7 @@ export function tip() {
   const D = best.clone().multiply(p.q.clone().invert());
   if (D.w < 0) { D.x = -D.x; D.y = -D.y; D.z = -D.z; D.w = -D.w; }
   const ang = 2 * Math.acos(Math.min(1, D.w)), sn = Math.sqrt(Math.max(1e-9, 1 - D.w * D.w));
-  rotatePiece(new THREE.Vector3(D.x / sn, D.y / sn, D.z / sn).normalize(), ang);
+  rotatePiece(new THREE.Vector3(D.x / sn, D.y / sn, D.z / sn).normalize(), ang, 'flip');
 }
 
 export function turn() {
@@ -91,6 +95,7 @@ export function turn() {
   Movement.turn(p);
   AudioFX.tone(520, 0.06, 'triangle', 0.09); AudioFX.tone(700, 0.06, 'triangle', 0.07, 0.04);
   hideHint(); updateHUD();
+  Tutorial.onAction('axis');
 }
 export function canTurn(p) {
   if (!p) return false;
@@ -103,6 +108,7 @@ export function canTurn(p) {
 // DROP: the whole piece falls intact. Trimming (if any) happens after it lands.
 export function place() {
   const p = S.piece; if (!p || S.phase !== 'aim') return;
+  if (!Tutorial.canDrop(p)) return;
   AudioFX.unlock();
   if (S.pending > 0) { S.queuedDrop = true; return; }   // previous piece still settling: drop the moment it's done
   p.anim = null; p.body.quaternion.identity(); p.body.position.set(0, 0, 0);
@@ -287,6 +293,7 @@ function finishPlacement(pl) {
     else toast(label, 'bad');
   }
   updateHUD();
+  if (Tutorial.mode === 'challenge') Tutorial.onPlacement(pl.stable > 0);
 }
 
 function addMeter(pts, text, kind) {
@@ -362,7 +369,11 @@ function updateFalling(dt) {
 }
 
 
-export function reset() {
+export function reset(keepTutorial = false) {
+  S.screen = '';
+  document.querySelector('.hud-top').inert = false;
+  Contract.clear();
+  if (!keepTutorial) Tutorial.clear();
   for (const p of S.pieces) { scene.remove(p.root); p.mat.dispose(); }
   for (const f of S.falling) { scene.remove(f.root); f.mat.dispose(); }
   if (S.piece) { scene.remove(S.piece.root); S.piece.mat.dispose(); }
@@ -394,6 +405,14 @@ export let clock = 0;
 export function advanceClock(dt) { clock += dt; }
 
 export function step(dt) {
+  if (S.screen) return;
+  if (Tutorial.mode === 'overview' || Tutorial.mode === 'complete') { Cam.update(dt); return; }
+  if (Tutorial.mode === 'challenge') {
+    if (S.phase === 'aim') updatePiece(dt);
+    updateDropping(dt); updateTrims(dt); updateFalling(dt); updateFx(dt);
+    updateGhost(clock); updateLane(clock); Tutorial.tick(dt); Cam.update(dt);
+    return;
+  }
   const lim = CFG.strikes.limit | 0;
   const out = lim > 0 && S.strikes >= lim;
   // safety net: a strike that only resolved after the next piece appeared still ends the run now
