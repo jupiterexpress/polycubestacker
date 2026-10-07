@@ -1,4 +1,4 @@
-# Polycube Stacker
+# Asterra
 
 A mobile 3D stacking game. Random polycube tiles travel back and forth over a build; you ROTATE, FLIP, change AXIS and DROP them so they settle onto the structure. Built with Three.js, bundled with Vite, and wrapped as an iPhone app with Capacitor. Everything runs offline.
 
