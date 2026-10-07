@@ -2,10 +2,10 @@
   "appId": "com.jupiterexpress.polycubestacker",
   "appName": "Polycube Stacker",
   "webDir": "dist",
-  "backgroundColor": "#8ea5b6",
+  "backgroundColor": "#102a32",
   "ios": {
     "contentInset": "never",
-    "backgroundColor": "#8ea5b6",
+    "backgroundColor": "#102a32",
     "scrollEnabled": false
   }
 }

@@ -36,34 +36,6 @@ test('contractor creation and every story chapter lead to the tutorial', async (
   expect(errors).toEqual([]);
 });
 
-test('contract density counts blueprint space, pays once, and buys building lights', async ({ page }) => {
-  await page.addInitScript(() => {
-    localStorage.setItem('asterra-opening-complete', '1');
-    localStorage.setItem('polycube-tutorial-complete', '1');
-  });
-  await page.goto('/');
-  await page.locator('#contractAccept').click();
-  const result = await page.evaluate(() => {
-    const { Contract: C, World, S, step, CFG } = STACKER;
-    // A settled 60%-full blueprint, plus a cell above it that must earn no credit.
-    for (let x = -2; x <= 2; x++) for (let z = -2; z <= 2; z++) World.add(x, 0, z, 'test');
-    for (let x = -2; x <= 1; x++) for (let z = -2; z <= 2; z++) World.add(x, 1, z, 'test');
-    World.add(0, 4, 0, 'test');
-    S.placed = CFG.run.pieces; S.phase = 'wait'; S.waitT = 0;
-    step(50, 1 / 60, true);
-    const first = C.coins; C.finish();
-    return { filled: C.filled(), coins: C.coins, first };
-  });
-  expect(result).toEqual({ filled: 45, coins: 63, first: 63 });
-  await expect(page.locator('#endTitle')).toHaveText('CONTRACT COMPLETE');
-  await page.locator('#finishUpgrade').click();
-  await expect(page.locator('#upgradeStatus')).toContainText('Amber lights installed');
-  expect(await page.evaluate(() => STACKER.Contract.coins)).toBe(43);
-  await page.locator('#againBtn').click();
-  await expect(page.locator('#contractHUD')).toBeVisible();
-  expect(await page.evaluate(() => STACKER.Contract.filled())).toBe(0);
-});
-
 test('opening works with reduced motion, blocked storage, and a short landscape screen', async ({ page }) => {
   await page.setViewportSize({ width: 844, height: 390 });
   await page.emulateMedia({ reducedMotion: 'reduce' });

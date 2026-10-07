@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { baseRect } from './world.js';
+import { baseRect, footprint } from './world.js';
 
 /* =====================================================================
    RENDERING
@@ -10,6 +10,7 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputEncoding = THREE.sRGBEncoding;
+renderer.localClippingEnabled = true;
 
 export const scene = new THREE.Scene();
 scene.fog = new THREE.Fog(0x294b49, 34, 80);
@@ -49,13 +50,13 @@ export function makeCube(mat) {
   return m;
 }
 
-/* baseplate: gridded slab with a hazard-striped rim on a concrete plinth */
+/* A miniature Asterra site. The grid is a placement guide on a garden foundation. */
 const baseGroup = new THREE.Group(); scene.add(baseGroup);
 function cellTexture() {
   const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
-  g.fillStyle = '#5b6771'; g.fillRect(0, 0, 64, 64);
-  g.strokeStyle = '#7a8791'; g.lineWidth = 2; g.strokeRect(1, 1, 62, 62);
-  g.fillStyle = '#6b7882'; g.fillRect(30, 30, 4, 4);
+  g.fillStyle = '#55766e'; g.fillRect(0, 0, 64, 64);
+  g.strokeStyle = '#849e8d'; g.lineWidth = 1.5; g.strokeRect(1, 1, 62, 62);
+  g.fillStyle = '#718e80'; g.fillRect(30, 30, 4, 4);
   const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.encoding = THREE.sRGBEncoding; t.anisotropy = 4;
   return t;
 }
@@ -71,22 +72,33 @@ function stripeTexture() {
   return t;
 }
 export function buildBaseplate() {
-  while (baseGroup.children.length) { const o = baseGroup.children.pop(); o.geometry && o.geometry.dispose(); }
+  const geometries = new Set(), materials = new Set(), textures = new Set();
+  baseGroup.traverse(o => {
+    if (o.geometry) geometries.add(o.geometry);
+    if (o.material) for (const m of Array.isArray(o.material) ? o.material : [o.material]) { materials.add(m); if (m.map) textures.add(m.map); }
+  });
+  geometries.forEach(g => g.dispose()); materials.forEach(m => m.dispose()); textures.forEach(t => t.dispose()); baseGroup.clear();
   const { w, d, x0, z0 } = baseRect();
   const cx = x0 + (w - 1) / 2, cz = z0 + (d - 1) / 2;
-  const top = cellTexture(); top.repeat.set(w, d);
-  const sx = stripeTexture(); sx.repeat.set(d, 1);
-  const sz = stripeTexture(); sz.repeat.set(w, 1);
-  const mTop = new THREE.MeshStandardMaterial({ map: top, roughness: 0.85 });
-  const mSx = new THREE.MeshStandardMaterial({ map: sx, roughness: 0.8 });
-  const mSz = new THREE.MeshStandardMaterial({ map: sz, roughness: 0.8 });
-  const mBot = new THREE.MeshStandardMaterial({ color: lin(0x323a42) });
-  const slab = new THREE.Mesh(new THREE.BoxGeometry(w, 1, d), [mSx, mSx, mTop, mBot, mSz, mSz]);
-  slab.position.set(cx, -0.5, cz); slab.receiveShadow = true; slab.castShadow = true;
-  const plinth = new THREE.Mesh(new THREE.BoxGeometry(Math.max(0.6, w - 0.8), 18, Math.max(0.6, d - 0.8)),
-    new THREE.MeshStandardMaterial({ color: lin(0x8a8f8c), roughness: 0.95 }));
-  plinth.position.set(cx, -10, cz); plinth.receiveShadow = false;   // shadows only on the plate and blocks
-  baseGroup.add(slab, plinth);
+  const material = color => new THREE.MeshStandardMaterial({ color: lin(color), roughness: .9 });
+  const edge = material(0x29474c), garden = material(0x425f56), stone = material(0x889e86), leaf = material(0x728c70);
+  const top = new THREE.MeshStandardMaterial({ map: cellTexture(), roughness: .9 });
+  const radius = Math.hypot(w,d)/2+.9;
+  const island = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius*.94, .7, 6), [edge,garden,edge]);
+  island.position.set(cx,-.71,cz); baseGroup.add(island);
+  const cell = new THREE.BoxGeometry(1,.36,1);
+  for (const [x,z] of footprint()) {
+    const tile = new THREE.Mesh(cell, [stone,stone,top,edge,stone,stone]); tile.position.set(x,-.18,z); tile.receiveShadow = true; baseGroup.add(tile);
+  }
+  const box = (x,y,z,a,b,c,mat) => { const mesh = new THREE.Mesh(new THREE.BoxGeometry(a,b,c),mat); mesh.position.set(x,y,z); baseGroup.add(mesh); return mesh; };
+  const amber = new THREE.MeshStandardMaterial({ color: lin(0xffc46a), emissive: lin(0xffb552), emissiveIntensity: 1.2 });
+  for (const side of [-1,1]) {
+    const x = cx+side*(w/2+.38), z = cz+d/2-.15;
+    box(x,-.01,z,.07,.7,.07,edge); box(x,.41,z,.18,.3,.18,amber);
+    box(x,.58,z,.26,.06,.26,edge); box(x,.24,z,.23,.06,.23,edge);
+    const light = new THREE.PointLight(0xffc078,.4,2.2,2); light.position.set(x,.48,z); baseGroup.add(light);
+    const tree = new THREE.Mesh(new THREE.ConeGeometry(.32,.85,5),leaf); tree.position.set(cx+side*(w/2+.45),.04,cz-d/2+.2); baseGroup.add(tree);
+  }
 }
 const ground = new THREE.Mesh(new THREE.CircleGeometry(90, 48), new THREE.MeshStandardMaterial({ color: lin(0x385850), roughness: 1 }));
-ground.rotation.x = -Math.PI / 2; ground.position.y = -19; ground.receiveShadow = false; scene.add(ground);
+ground.rotation.x = -Math.PI / 2; ground.position.y = -19; ground.visible = false; scene.add(ground);

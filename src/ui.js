@@ -7,6 +7,7 @@ import { S, used, runTotal, speedMul } from './state.js';
 import { place, rotateY, tip, turn, canTurn, usePower, reset, compactness } from './game.js';
 import { Tutorial } from './tutorial.js';
 import { Contract } from './contract.js';
+import { Powers } from './powerups.js';
 
 /* =====================================================================
    UI
@@ -27,22 +28,15 @@ export function updateHUD() {
   Contract.update();
   const b = World.bounds, max = Math.max(1, CFG.meter.max | 0);
   if (segsEl.children.length !== max) buildSegs();
-  const celebrating = performance.now() < S.celebrateUntil && meterEl.classList.contains('full');
+  const celebrating = Powers.ready;
   [...segsEl.children].forEach((s, i) => s.classList.toggle('on', celebrating || i < S.meter));
   meterNum.textContent = (celebrating ? max : Math.min(S.meter, max)) + '/' + max;
   statsEl.innerHTML =
     '<span>PIECE</span> <b>' + Math.min(runTotal(), used() + (S.piece ? 1 : 0)) + '/' + runTotal() + '</b> <span>·</span> ' +
     '<span>PLACED</span> <b>' + S.placed + '</b> <span>· FELL</span> <b>' + S.fell + '</b>' +
     ' <span>· HEIGHT</span> <b>' + (b.topY + 1) + '</b>' + strikeMarks() + speedTag();
-  const arriving = powerBtn.classList.contains('arriving');
-  const inv = Math.max(0, (S.inv.shadow || 0) - (arriving ? 1 : 0)), act = S.active.shadow || 0;
-
-  powerBtn.classList.toggle('active', act > 0);
-  powerBtn.classList.toggle('ready', act === 0 && inv > 0);
-  powerBtn.classList.toggle('empty', act === 0 && inv === 0);
-  if (act > 0) powerBtn.innerHTML = shadowSvg + 'SHADOW ON<small>' + act + ' placement' + (act === 1 ? '' : 's') + ' left' + (inv ? ' · +' + inv + ' held' : '') + '</small>';
-  else if (inv > 0) powerBtn.innerHTML = shadowSvg + 'USE SHADOW<small>' + inv + ' ready · tap</small>';
-  else powerBtn.innerHTML = shadowSvg + 'SHADOW<small>fill the meter</small>';
+  Powers.update();
+  if (Contract.active) statsEl.innerHTML = `<span>TILES</span> <b>${Math.min(runTotal(), used()+(S.piece ? 1 : 0))}/${runTotal()}</b> <span>·</span> <span>PLACED</span> <b>${S.placed}</b>${strikeMarks()}`;
   tipBtn.hidden = !CFG.rotate.allowTip;
   const p = S.piece, lim = CFG.turn.maxPerPiece | 0, cost = CFG.turn.meterCost | 0;
   let sub = '';
@@ -78,6 +72,7 @@ function bindBtn(el, fn) {
 export function setPaused(on) {
   if (S.screen) return;
   if (Tutorial.mode === 'overview' || Tutorial.mode === 'complete') return;
+  if (S.phase === 'finishing') { S.paused = on; return; }
   if (on && S.phase === 'over') return;
   S.paused = on;
   pauseEl.hidden = !on || !sheet.hidden;
@@ -156,36 +151,21 @@ function buildTune() {
 export const sheet = $('sheet');
 
 
-/* meter-full payoff: flash the meter, send a spark to the powerup button, pop the button */
+/* Full charge stays available until a powerup is actually used. */
 export function celebrate() {
-  const c = CFG.celebrate, tf = Math.max(0, c.flash), ts = Math.max(0, c.spark), tp = Math.max(0, c.pop);
-  const total = tf + ts + tp;
-  S.celebrateUntil = performance.now() + total * 1000;
-  powerBtn.classList.add('arriving');                      // hold the button's ready look until the spark lands
+  S.celebrateUntil = performance.now() + 450;
   meterEl.classList.add('full');
+  Powers.notifyReady(); AudioFX.power();
+  if (!matchMedia('(prefers-reduced-motion: reduce)').matches) powerBtn.animate([
+    { transform: 'translateX(0)' }, { transform: 'translateX(-3px)' },
+    { transform: 'translateX(3px)' }, { transform: 'translateX(0)' },
+  ], { duration: 250, iterations: 2 });
   updateHUD();
-  setTimeout(() => {
-    meterEl.classList.remove('full');
-    const a = meterEl.getBoundingClientRect(), b = powerBtn.getBoundingClientRect();
-    const sp = document.createElement('div'); sp.className = 'spark'; appEl.appendChild(sp);
-    const x0 = a.left + a.width / 2, y0 = a.bottom - 6, x1 = b.left + b.width / 2, y1 = b.top + b.height / 2;
-    const anim = sp.animate([
-      { transform: 'translate(' + x0 + 'px,' + y0 + 'px) scale(1)', opacity: 1 },
-      { transform: 'translate(' + x1 + 'px,' + y1 + 'px) scale(0.6)', opacity: 1 }],
-      { duration: Math.max(1, ts * 1000), easing: 'cubic-bezier(.5,0,.8,.4)' });
-    anim.onfinish = () => {
-      sp.remove();
-      powerBtn.classList.remove('arriving');
-      powerBtn.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.14)' }, { transform: 'scale(1)' }],
-        { duration: Math.max(1, tp * 1000), easing: 'ease-out' });
-      AudioFX.power();
-      updateHUD();
-    };
-  }, tf * 1000);
 }
 
 
 export function endRun(why) {
+  if (Contract.active) { Contract.end(why); hideHint(); return; }
   S.phase = 'over';
   $('endTitle').textContent = why === 'strikes' ? 'OUT OF STRIKES' : 'BUILD COMPLETE';
   const b = World.bounds;
@@ -195,14 +175,8 @@ export function endRun(why) {
     ['COMPACT', Math.round(compactness() * 100) + '%', 'hi'],
   ];
   $('endGrid').innerHTML = stats.map(([k, v, c]) => '<div class="' + (c || '') + '"><span>' + k + '</span><b>' + v + '</b></div>').join('');
-  $('endSub').textContent = S.cubes + ' cubes · ' + S.perfects + ' perfect · compact = cubes ÷ their bounding box · drag to change camera angle';
-  const contract = Contract.finish();
-  if (contract) {
-    $('endTitle').textContent = contract.complete ? 'CONTRACT COMPLETE' : 'A FOUNDATION TO BUILD ON';
-    $('endSub').textContent = `${contract.density}% density · +${contract.reward} coins earned. ${contract.complete ? 'The Lantern House brings Asterra together.' : 'Aim for 60% to finish the Lantern House.'}`;
-    $('endGrid').innerHTML = [['DENSITY', contract.density + '%'], ['TARGET', '60%'], ['COINS', '+' + contract.reward]].map(([k, v]) => `<div class="hi"><span>${k}</span><b>${v}</b></div>`).join('');
-  }
-  $('againBtn').textContent = contract ? 'REBUILD LANTERN HOUSE' : 'BUILD AGAIN';
+  $('endSub').textContent = S.cubes + ' cubes · ' + S.perfects + ' perfect · drag to change camera angle';
+  $('againBtn').textContent = 'BUILD AGAIN';
   controlsEl.hidden = true; endEl.hidden = false; hideHint();
   AudioFX.power();
 }
@@ -220,11 +194,13 @@ export function initUI() {
   $('pRestartBtn').addEventListener('click', () => { if (Tutorial.mode === 'challenge') Tutorial.challenge(); else if (Contract.active) Contract.start(); else reset(); setPaused(false); });
   $('tutorialReplay').addEventListener('click', () => Tutorial.start());
   $('pTuneBtn').addEventListener('click', () => { sheet.hidden = false; pauseEl.hidden = true; });
-  document.addEventListener('visibilitychange', () => { if (document.hidden) setPaused(true); });
+  document.addEventListener('visibilitychange', () => { if (document.hidden) setPaused(true); else if (S.phase === 'finishing') S.paused = false; });
   window.addEventListener('blur', () => setPaused(true));
-  bindBtn(powerBtn, () => usePower('shadow'));
+  window.addEventListener('focus', () => { if (S.phase === 'finishing') S.paused = false; });
+  bindBtn(powerBtn, () => Powers.open());
   window.addEventListener('keydown', e => {
-    if (S.screen || (e.target.closest && e.target.closest('.sheet, input, textarea'))) return;
+    if (S.screen === 'powers' || S.screen === 'tiles') { if (e.key === 'Escape') Powers.close(); return; }
+    if (S.screen || S.phase === 'finishing' || (e.target.closest && e.target.closest('.sheet, input, textarea'))) return;
     const k = e.key.toLowerCase();
     if ((k === ' ' || k === 'enter') && e.target.closest?.('button')) return;
     if (Tutorial.mode === 'overview' || Tutorial.mode === 'complete') return;
@@ -234,7 +210,7 @@ export function initUI() {
     else if (k === 'r') rotateY();
     else if (k === 'e') turn();
     else if (k === 't') tip();
-    else if (k === 's') usePower('shadow');
+    else if (k === 's') Powers.open();
     else if (k === 'arrowleft') Cam.goalYaw -= 0.15;
     else if (k === 'arrowright') Cam.goalYaw += 0.15;
     else if (k === 'arrowup') Cam.goalPitch += 0.1;
@@ -242,11 +218,12 @@ export function initUI() {
   });
   buildTune();
   $('gearBtn').addEventListener('click', () => {
+    if (S.phase === 'finishing') return;
     if (sheet.hidden) { sheet.hidden = false; if (S.phase !== 'over') { S.paused = true; controlsEl.hidden = true; } pauseEl.hidden = true; }
     else { sheet.hidden = true; if (S.paused) setPaused(true); }
   });
   $('closeSheet').addEventListener('click', () => { sheet.hidden = true; if (S.paused) setPaused(true); });
-  $('grantBtn').addEventListener('click', () => { S.inv.shadow = (S.inv.shadow || 0) + 1; updateHUD(); toast('LANDING SHADOW +1', 'power'); });
+  $('grantBtn').addEventListener('click', () => { S.meter = CFG.meter.max; celebrate(); });
   $('fillBtn').addEventListener('click', () => { S.meter = Math.max(0, Math.max(1, CFG.meter.max | 0) - 1); updateHUD(); });
   $('restartBtn').addEventListener('click', () => { if (Tutorial.mode === 'challenge') Tutorial.challenge(); else if (Contract.active) Contract.start(); else reset(); sheet.hidden = true; setPaused(false); });
 }

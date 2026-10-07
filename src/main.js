@@ -12,10 +12,11 @@ import { renderer, scene, camera } from './scene.js';
 import { Cam, initCameraInput } from './camera.js';
 import { S } from './state.js';
 import { step, advanceClock, reset, spawn, place, rotateY, tip, turn, usePower } from './game.js';
-import { initUI, setPaused, celebrate } from './ui.js';
+import { initUI, setPaused, celebrate, updateHUD } from './ui.js';
 import { Tutorial } from './tutorial.js';
 import { Opening, readSave } from './opening.js';
 import { Contract } from './contract.js';
+import { Powers } from './powerups.js';
 
 /* =====================================================================
    LOOP
@@ -37,6 +38,7 @@ function frame(now) {
 
 window.addEventListener('resize', resize);
 initUI();
+Powers.init({ use: usePower, update: updateHUD });
 initCameraInput();
 Tutorial.init({ reset, spawn, startContract: () => Contract.brief() });
 Contract.init({ reset });
@@ -50,5 +52,5 @@ Cam.update(1);
 requestAnimationFrame(frame);
 
 /* debug handle for tuning and automated checks */
-window.STACKER = { CFG, S, World, Physics, Movement, Cam, Tutorial, Opening, Contract, camera: () => camera, place, rotate: rotateY, tip, turn, setPaused, celebrate: () => { S.inv.shadow = (S.inv.shadow || 0) + 1; celebrate(); }, usePower, reset,
+window.STACKER = { CFG, S, World, Physics, Movement, Cam, Tutorial, Opening, Contract, Powers, spawn, scene, camera: () => camera, place, rotate: rotateY, tip, turn, setPaused, celebrate: () => { S.meter = CFG.meter.max; celebrate(); }, usePower, reset,
   step(n, dt, noRender) { for (let i = 0; i < n; i++) step(dt || 1 / 60); if (!noRender) renderer.render(scene, camera); } };

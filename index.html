@@ -32,16 +32,49 @@
 
   <div id="contractBrief" class="tutorial-screen contract-screen" hidden>
     <section class="tutorial-card contract-card chip" role="dialog" aria-modal="true" aria-labelledby="contractTitle">
-      <span class="tutorial-kicker">ASTERRA REBUILDING OFFICE · CONTRACT 001</span>
+      <span class="tutorial-kicker" id="contractKicker">ASTERRA REBUILDING OFFICE · 1 OF 3</span>
       <h1 id="contractTitle">THE LANTERN HOUSE</h1>
-      <p>A gathering place for a neighborhood finding its feet.</p>
-      <div class="blueprint-art" aria-label="Blueprint: five by five cells, three levels high"><svg viewBox="0 0 300 170" fill="none" aria-hidden="true"><path d="M150 16 265 68 150 121 35 68Z M35 68v48l115 52 115-52V68 M150 121v47 M35 92l115 52 115-52 M58 79l115-53 M81 89l115-53 M104 100l115-53 M127 111l115-53 M58 58l115 53 M81 48l115 53 M104 37l115 53 M127 27l115 53"/><path class="blueprint-back" d="M150 16v48L35 116 M150 64l115 52"/></svg><span>5 × 5 FOOTPRINT / 3 LEVELS</span></div>
-      <div class="contract-specs"><div><span>YOUR TARGET</span><strong>60% density</strong></div><div><span>MATERIALS</span><strong>30 tiles</strong></div></div>
-      <p>Stack inside the glowing blueprint. Fill at least 60% of its space to finish the contract. Every filled space earns coins; denser builds earn a bonus.</p>
+      <p id="contractDescription"></p>
+      <div class="blueprint-art"><div id="contractBlueprint" role="img"></div><span id="contractDimensions"></span></div>
+      <div class="contract-specs"><div><span>YOUR TARGET</span><strong id="contractTarget"></strong></div><div><span>MATERIALS</span><strong id="contractTiles"></strong></div></div>
+      <p id="contractLesson"></p>
       <button class="btn tutorial-primary" id="contractAccept">ACCEPT CONTRACT →</button>
     </section>
   </div>
-  <div id="contractHUD" class="contract-hud chip" hidden><span>001 · LANTERN HOUSE</span><strong id="contractDensity">0% / 60% DENSITY</strong><span id="contractWallet">0 COINS</span></div>
+  <div id="contractHUD" class="contract-hud chip" hidden>
+    <div class="contract-hud-heading"><span id="contractName"></span><span id="contractWallet"></span></div>
+    <div class="contract-progress-row"><div class="contract-progress-track"><div id="contractProgress"></div></div><strong id="contractDensity">0% FILLED</strong></div>
+    <span id="contractObjective"></span><button id="finishBuild" hidden>FINISH BUILDING ✧</button>
+  </div>
+  <div id="activePowers" class="active-powers" hidden aria-live="polite"></div>
+  <div id="buildReveal" class="build-reveal" role="status" hidden></div>
+
+  <div class="power-modal" id="powerPicker" hidden>
+    <section class="power-sheet" role="dialog" aria-modal="true" aria-labelledby="powerTitle">
+      <span class="tutorial-kicker">PERFECT PLACEMENTS PAID OFF</span>
+      <h2 id="powerTitle">A LITTLE HELP?</h2><p>Choose one powerup. Your meter resets when you use it.</p>
+      <div id="powerOptions"></div>
+      <button class="sheet-cancel" id="closePowers">SAVE IT FOR LATER</button>
+    </section>
+  </div>
+  <div class="power-modal" id="tilePicker" hidden>
+    <section class="power-sheet" role="dialog" aria-modal="true" aria-labelledby="tileTitle">
+      <span class="tutorial-kicker">TILE CHOICE</span><h2 id="tileTitle">PLAN YOUR NEXT THREE.</h2>
+      <p>Your current tile stays in play. Choose three different tiles for what comes next.</p>
+      <div id="tileOptions" class="tile-options"></div>
+      <p id="tileSelection" aria-live="polite"></p>
+      <button class="story-primary" id="confirmTiles" disabled>QUEUE 0 / 3 TILES</button>
+      <button class="sheet-cancel" id="cancelTiles">BACK TO POWERUPS</button>
+    </section>
+  </div>
+  <div id="districtDone" class="tutorial-screen" hidden>
+    <section class="tutorial-card district-card" role="dialog" aria-modal="true" aria-labelledby="districtTitle">
+      <span class="tutorial-kicker">THREE CONTRACTS · ONE NEW NEIGHBORHOOD</span>
+      <h1 id="districtTitle">LOOK WHAT YOU BUILT.</h1><p>Your buildings. Your shapes. Asterra is coming back to life.</p>
+      <div id="districtBuildings"></div><p id="districtCoins"></p>
+      <button class="btn tutorial-primary" id="districtReplay">BUILD THE NEIGHBORHOOD AGAIN</button>
+    </section>
+  </div>
 
   <div class="hud-top">
     <div class="meter chip" id="meter">
@@ -73,7 +106,7 @@
         ROTATE
       </button>
     </div>
-    <button class="btn power empty" id="powerBtn" aria-label="Landing Shadow powerup (keyboard S)"></button>
+    <button class="btn power empty" id="powerBtn" aria-label="Choose a powerup" disabled></button>
     <div class="right-stack">
       <button class="btn turn" id="turnBtn" aria-label="Change travel axis (keyboard E)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h18M6 9l-3 3 3 3M18 9l3 3-3 3"/><path d="M12 3v18M9 6l3-3 3 3M9 18l3 3 3-3"/></svg>
@@ -91,9 +124,8 @@
       <h2 id="endTitle">BUILD COMPLETE</h2>
       <p class="sub" id="endSub"></p>
       <div class="end-grid" id="endGrid"></div>
+      <button class="btn tutorial-primary" id="nextContract" hidden>NEXT CONTRACT →</button>
       <button class="btn again" id="againBtn">BUILD AGAIN</button>
-      <button class="btn finish-upgrade" id="finishUpgrade" hidden>ADD AMBER LIGHTS · 20 COINS</button>
-      <p id="upgradeStatus" class="sub" role="status" hidden></p>
     </div>
   </div>
 
@@ -114,7 +146,7 @@
     <p>Every number here is a starting placeholder, not a design decision. Changes apply live except baseplate size, which applies on restart. The same values live in the CFG block at the top of the script.</p>
     <div class="grid" id="tuneGrid"></div>
     <div class="sheet-actions">
-      <button class="s" id="grantBtn">Grant Landing Shadow</button>
+      <button class="s" id="grantBtn">Ready a powerup</button>
       <button class="s" id="fillBtn">Fill meter</button>
       <button class="s primary" id="restartBtn">Restart build</button>
     </div>

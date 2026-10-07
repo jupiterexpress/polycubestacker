@@ -3,89 +3,145 @@ import { CFG } from './config.js';
 import { S } from './state.js';
 import { World } from './world.js';
 import { scene } from './scene.js';
+import { CONTRACTS, voxelSVG } from './blueprints.js';
+import { makeBuilding, exterior } from './building.js';
+import { AudioFX } from './audio.js';
 
 const $ = id => document.getElementById(id);
 const read = key => { try { return localStorage.getItem(key); } catch { return null; } };
-const save = (key, value) => { try { localStorage.setItem(key, value); } catch { /* Keep session values. */ } };
-const guide = new THREE.Group(); guide.visible = false; scene.add(guide);
-const outline = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(5, 3, 5)),
-  new THREE.LineBasicMaterial({ color: 0x9ce1d3, transparent: true, opacity: 0.7 }));
-outline.position.y = 1.5; guide.add(outline);
-const accents = new THREE.Group(); scene.add(accents);
-const lightGeo = new THREE.BoxGeometry(0.14, 0.2, 0.02);
-const lightMat = new THREE.MeshBasicMaterial({ color: 0xffc77a });
+const save = (key, value) => { try { localStorage.setItem(key, value); } catch { /* Session still works. */ } };
+const guide = new THREE.Group(); scene.add(guide);
+const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 export const Contract = {
-  active: false, paid: false, upgraded: false, savedCfg: null, coins: 0,
+  active: false, paid: false, savedCfg: null, coins: 0, index: 0, nextIndex: 0, completed: [],
+  building: null, finishRequested: false, result: null, revealTime: 0,
+  get plan() { return CONTRACTS[this.index]; },
   init(api) {
     this.api = api;
-    this.coins = Math.max(0, Number(read('asterra-coins')) || 0);
+    let progress;
+    try { progress = JSON.parse(read('asterra-progress-v2')); } catch { /* Older save. */ }
+    this.coins = Math.max(0, Number(progress?.coins ?? read('asterra-coins')) || 0);
+    this.nextIndex = Math.max(0, Math.min(3, Math.floor(Number(progress?.nextIndex) || 0)));
+    this.completed = Array.isArray(progress?.completed) ? progress.completed.slice(0,3) : [];
     $('contractAccept').addEventListener('click', () => this.start());
-    $('finishUpgrade').addEventListener('click', () => this.upgrade());
+    $('finishBuild').addEventListener('click', () => { if (this.ready()) this.finishRequested = true; });
+    $('nextContract').addEventListener('click', () => this.brief(this.index+1));
+    $('districtReplay').addEventListener('click', () => this.brief(0));
   },
-  brief() {
+  persist() {
+    // Reward and unlocked contract share one write, avoiding duplicate payouts on reload.
+    save('asterra-progress-v2', JSON.stringify({ coins: this.coins, nextIndex: this.nextIndex, completed: this.completed }));
+  },
+  brief(index = this.nextIndex) {
     this.api.reset();
-    S.screen = 'contract'; $('contractBrief').hidden = false; $('controls').hidden = true;
+    S.screen = 'contract'; $('controls').hidden = true;
     document.querySelector('.hud-top').inert = true;
+    if (index >= CONTRACTS.length && this.nextIndex >= CONTRACTS.length) {
+      $('districtDone').hidden = false;
+      $('districtBuildings').innerHTML = CONTRACTS.map((p,i) => `<div>${voxelSVG(this.completed[i]?.cells || p.cells)}<strong>${p.short}</strong><span>${this.completed[i]?.grade || '—'} · DENSITY GRADE</span></div>`).join('');
+      $('districtCoins').textContent = `${this.coins} coins · a new beginning for Asterra`;
+      $('districtReplay').focus({ preventScroll: true }); return;
+    }
+    this.index = Math.max(0, Math.min(2, index, this.nextIndex));
+    const p = this.plan;
+    $('contractKicker').textContent = `ASTERRA REBUILDING OFFICE · ${this.index+1} OF 3`;
+    $('contractTitle').textContent = p.name; $('contractDescription').textContent = p.description;
+    $('contractBlueprint').innerHTML = voxelSVG(p.cells);
+    $('contractBlueprint').setAttribute('aria-label', ['Rectangular blueprint', 'L-shaped blueprint with a taller wing', 'Indented courtyard blueprint with two wings'][this.index]);
+    $('contractDimensions').textContent = `${p.w} × ${p.d} SITE · ${Math.max(...p.columns.map(c => c[2]))} LEVELS`;
+    $('contractTarget').textContent = `${Math.round(p.goal*100)}% filled`; $('contractTiles').textContent = `${p.tiles} tiles`;
+    $('contractLesson').textContent = p.lesson; $('contractBrief').hidden = false;
     $('contractAccept').focus({ preventScroll: true });
   },
   start() {
-    this.api.reset();
-    const config = { w: CFG.baseplate.w, d: CFG.baseplate.d, pieces: CFG.run.pieces };
-    CFG.baseplate.w = 5; CFG.baseplate.d = 5; CFG.run.pieces = 30;
+    const index = this.index;
+    this.api.reset(); this.index = index;
+    const p = this.plan, config = { baseplate: { ...CFG.baseplate }, pieces: CFG.run.pieces };
+    CFG.baseplate.w = p.w; CFG.baseplate.d = p.d;
+    CFG.baseplate.cells = p.columns.map(([x,z]) => [x,z]); CFG.run.pieces = p.tiles;
     this.api.reset(); this.savedCfg = config;
-    this.active = true; this.paid = false; this.upgraded = false;
+    this.active = true; this.paid = false; this.result = null; this.finishRequested = false;
     $('contractBrief').hidden = true; $('contractHUD').hidden = false;
-    $('hint').classList.add('gone');
-    guide.visible = true; this.update();
+    $('contractName').textContent = `${this.index+1} / 3 · ${p.short}`; $('hint').classList.add('gone');
+    document.body.classList.add('contract-playing'); this.makeGuide(); this.update();
+  },
+  makeGuide() {
+    const { geometry } = exterior(this.plan.cells);
+    const edges = new THREE.EdgesGeometry(geometry); geometry.dispose();
+    guide.add(new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0xa1e2ce, transparent: true, opacity: .65 })));
+    const geo = new THREE.PlaneGeometry(.94,.94), material = new THREE.MeshBasicMaterial({ color: 0x9fd5bd, transparent: true, opacity: .18, depthWrite: false });
+    for (const [x,z] of this.plan.columns) {
+      const tile = new THREE.Mesh(geo, material); tile.rotation.x = -Math.PI/2; tile.position.set(x,.015,z); guide.add(tile);
+    }
+    guide.visible = true;
   },
   clear() {
-    if (this.savedCfg) {
-      CFG.baseplate.w = this.savedCfg.w; CFG.baseplate.d = this.savedCfg.d; CFG.run.pieces = this.savedCfg.pieces;
-      this.savedCfg = null;
-    }
-    this.active = false; guide.visible = false;
-    accents.clear();
-    $('contractBrief').hidden = true; $('contractHUD').hidden = true;
-    $('finishUpgrade').hidden = true; $('upgradeStatus').hidden = true;
+    if (this.savedCfg) { Object.assign(CFG.baseplate, this.savedCfg.baseplate); CFG.baseplate.cells = this.savedCfg.baseplate.cells; CFG.run.pieces = this.savedCfg.pieces; this.savedCfg = null; }
+    this.active = false; this.finishRequested = false;
+    const geometries = new Set(), materials = new Set();
+    guide.traverse(o => { if (o.geometry) geometries.add(o.geometry); if (o.material) materials.add(o.material); });
+    geometries.forEach(g => g.dispose()); materials.forEach(m => m.dispose()); guide.clear(); guide.visible = false;
+    if (this.building) { scene.remove(this.building.group); this.building.dispose(); this.building = null; }
+    for (const id of ['contractBrief','contractHUD','finishBuild','nextContract','districtDone','buildReveal']) $(id).hidden = true;
+    document.body.classList.remove('contract-playing','building-reveal','contract-results');
   },
-  filled() {
-    let count = 0;
-    for (let x = -2; x <= 2; x++) for (let z = -2; z <= 2; z++) for (let y = 0; y < 3; y++) if (World.has(x, y, z)) count++;
-    return count;
-  },
+  cells() { return [...World.occ.keys()].map(k => k.split(',').map(Number)).filter(c => c[1]>=0); },
+  filled() { return this.plan.cells.reduce((n,c) => n + Number(World.has(...c)), 0); },
+  ready() { return this.active && this.filled() >= Math.ceil(this.plan.cells.length*this.plan.goal); },
   update() {
     if (!this.active) return;
-    $('contractDensity').textContent = `${Math.round(this.filled() / 75 * 100)}% / 60% DENSITY`;
-    $('contractWallet').textContent = `${this.coins} COINS`;
+    const pct = Math.round(this.filled()/this.plan.cells.length*100), ready = this.ready();
+    $('contractDensity').textContent = `${pct}% FILLED`; $('contractProgress').style.width = `${pct}%`;
+    $('contractWallet').textContent = `${this.coins} ◈`;
+    $('finishBuild').hidden = !ready || S.phase === 'finishing' || S.phase === 'over'; $('finishBuild').disabled = S.pending > 0;
+    $('contractObjective').textContent = ready ? 'Ready to finish · or stack for a higher grade' : `Fill ${Math.round(this.plan.goal*100)}% of the blueprint`;
   },
-  finish() {
-    if (!this.active) return null;
-    const filled = this.filled(), density = filled / 75;
-    const reward = filled + Math.floor(50 * density * density);
-    if (!this.paid) { this.coins += reward; save('asterra-coins', this.coins); this.paid = true; }
-    this.update();
-    $('finishUpgrade').hidden = false;
-    $('finishUpgrade').disabled = this.coins < 20 || !filled;
-    $('upgradeStatus').hidden = false;
-    $('upgradeStatus').textContent = !filled ? 'Place tiles inside the blueprint to create a building to customize.' : this.coins < 20 ? `${20 - this.coins} more coins to add warm amber lights.` : 'Give your building a warm welcome.';
-    return { density: Math.round(density * 100), reward, complete: filled >= 45 };
+  checkCompletion() {
+    return this.active && S.pending === 0 && S.falling.length === 0 && (this.finishRequested || this.filled() === this.plan.cells.length);
   },
-  upgrade() {
-    if (!this.active || !this.paid || this.upgraded || this.coins < 20 || !this.filled()) return;
-    this.coins -= 20; save('asterra-coins', this.coins); this.upgraded = true;
-    for (const key of World.occ.keys()) {
-      const [x, y, z] = key.split(',').map(Number); if (y < 0) continue;
-      if (!World.has(x, y, z + 1)) for (const dx of [-0.23, 0.23]) {
-        const light = new THREE.Mesh(lightGeo, lightMat); light.position.set(x + dx, y + 0.5, z + 0.49); accents.add(light);
-      }
-      if (!World.has(x + 1, y, z)) for (const dz of [-0.23, 0.23]) {
-        const light = new THREE.Mesh(lightGeo, lightMat); light.rotation.y = Math.PI / 2;
-        light.position.set(x + 0.49, y + 0.5, z + dz); accents.add(light);
-      }
+  end(why) {
+    if (!this.active || S.phase === 'finishing' || this.result) return;
+    if (S.piece) { scene.remove(S.piece.root); S.piece.mat.dispose(); S.piece = null; }
+    S.queuedDrop = false;
+    const cells = this.cells(), filled = this.filled();
+    // Extra volume never inflates density. Perfect points never enter this score.
+    const density = filled / (this.plan.cells.length + cells.length - filled), complete = this.ready();
+    const grade = density >= .95 ? 'A+' : density >= .85 ? 'A' : density >= .75 ? 'B' : density >= .65 ? 'C' : 'D';
+    const reward = complete ? Math.round((40 + 160*density*density)*(1+this.index*.35)) : 0;
+    this.result = { complete, density, grade, reward, cells, why };
+    $('controls').hidden = true; $('finishBuild').hidden = true; guide.visible = false;
+    if (!complete) { this.showResults(); return; }
+    this.building = makeBuilding(cells, this.plan); scene.add(this.building.group);
+    this.revealTime = 0; S.phase = 'finishing'; document.body.classList.add('building-reveal');
+    $('buildReveal').hidden = false; $('buildReveal').textContent = 'A NEW LIGHT IN ASTERRA';
+    AudioFX.power(); this.building.reveal(0);
+  },
+  tick(dt) {
+    if (S.phase !== 'finishing' || !this.building) return;
+    this.revealTime += dt;
+    const duration = reducedMotion() ? .25 : 2.8, t = Math.min(1, this.revealTime/duration);
+    this.building.reveal(t);
+    const height = -.2+t*(this.building.maxY+.8), position = new THREE.Vector3();
+    for (const p of S.pieces) for (const m of p.meshes) { m.getWorldPosition(position); m.visible = position.y+.5 > height; }
+    if (t >= 1) {
+      S.pieces.forEach(p => { p.root.visible = false; });
+      if (this.revealTime >= duration+.65) this.showResults();
     }
-    $('finishUpgrade').hidden = true;
-    $('upgradeStatus').textContent = 'Amber lights installed. A little more life in Asterra.';
-    this.update();
+  },
+  showResults() {
+    const r = this.result; if (!r) return;
+    S.phase = 'over';
+    if (r.complete && !this.paid) {
+      this.coins += r.reward; this.paid = true; this.nextIndex = Math.max(this.nextIndex, this.index+1);
+      this.completed[this.index] = { cells: r.cells, grade: r.grade }; this.persist();
+    }
+    $('buildReveal').hidden = true; $('end').hidden = false;
+    document.body.classList.remove('building-reveal'); document.body.classList.add('contract-results');
+    $('endTitle').textContent = r.complete ? this.plan.name : 'LET’S TRY THAT AGAIN';
+    $('endSub').textContent = r.complete ? 'A place for Asterra to call home. Drag to admire your building.' : `${r.why === 'strikes' ? 'Three missed placements.' : 'All tiles used.'} Fill the blueprint to finish this contract.`;
+    $('endGrid').innerHTML = r.complete ? `<div class="density-grade"><span>DENSITY GRADE</span><b>${r.grade}</b></div><div class="coin-reward"><span>COINS EARNED</span><b>+ ${r.reward} <small>◈</small></b></div>` : `<div><span>BLUEPRINT FILLED</span><b>${Math.round(this.filled()/this.plan.cells.length*100)}%</b></div><div><span>YOUR TARGET</span><b>${Math.round(this.plan.goal*100)}%</b></div>`;
+    $('nextContract').hidden = !r.complete; $('nextContract').textContent = this.index === 2 ? 'SEE YOUR NEIGHBORHOOD →' : 'NEXT CONTRACT →';
+    $('againBtn').textContent = r.complete ? 'REBUILD THIS CONTRACT' : 'TRY AGAIN'; this.update();
   },
 };

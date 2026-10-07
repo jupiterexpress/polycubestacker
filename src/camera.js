@@ -4,6 +4,7 @@ import { World } from './world.js';
 import { canvas, camera, sun, SUN_OFFSET, topLight } from './scene.js';
 import { AudioFX } from './audio.js';
 import { hideHint } from './ui.js';
+import { S } from './state.js';
 
 /* =====================================================================
    CAMERA — one-finger orbit, pinch zoom. Independent of the piece.
@@ -24,7 +25,8 @@ export const Cam = {
     const span = Math.max(b.maxX - b.minX + 1, b.maxZ - b.minZ + 1);
     const h = b.topY + 1;
     // aim between the plate and where pieces hover, so both the build and the piece sit in view
-    const want = new THREE.Vector3((b.minX + b.maxX) / 2, Math.max(0.8, (h + CFG.move.hoverGap + 1.5) * 0.5), (b.minZ + b.maxZ) / 2);
+    const showcase = S.phase === 'finishing' || S.phase === 'over';
+    const want = new THREE.Vector3((b.minX + b.maxX) / 2, showcase ? Math.max(.3, h*.5-.65) : Math.max(0.8, (h + CFG.move.hoverGap + 1.5) * 0.5), (b.minZ + b.maxZ) / 2);
     const k = 1 - Math.exp(-3 * dt);
     this.target.lerp(want, k);
     // Distance depends only on the structure (never on the current piece), so it can't jump between drops.

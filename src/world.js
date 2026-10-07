@@ -9,8 +9,7 @@ export const World = {
   reset() {
     this.occ.clear(); this.colTop.clear();
     this.bounds = { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity, topY: -Infinity };
-    const { x0, z0, w, d } = baseRect();
-    for (let i = 0; i < w; i++) for (let k = 0; k < d; k++) this.add(x0 + i, -1, z0 + k, 'base');
+    for (const [x,z] of footprint()) this.add(x, -1, z, 'base');
   },
   add(x, y, z, id) {
     this.occ.set(x + ',' + y + ',' + z, id);
@@ -28,6 +27,12 @@ export function baseRect() {
   const w = Math.max(1, CFG.baseplate.w | 0), d = Math.max(1, CFG.baseplate.d | 0);
   return { w, d, x0: -Math.floor(w / 2), z0: -Math.floor(d / 2) };
 }
+export function footprint() {
+  if (CFG.baseplate.cells) return CFG.baseplate.cells;
+  const { x0,z0,w,d } = baseRect(), cells = [];
+  for (let x=0; x<w; x++) for (let z=0; z<d; z++) cells.push([x0+x,z0+z]);
+  return cells;
+}
 
 
 /* =====================================================================
@@ -37,6 +42,7 @@ export function baseRect() {
 export const Area = {
   inside(x, z) {
     if (!CFG.buildArea.trim) return true;
+    if (CFG.baseplate.cells) return CFG.baseplate.cells.some(c => c[0] === x && c[1] === z);
     const r = baseRect();
     return x >= r.x0 && x < r.x0 + r.w && z >= r.z0 && z < r.z0 + r.d;
   },

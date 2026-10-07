@@ -5,7 +5,7 @@ import { Poly, applyRot, stanceKey, stancesOf, qAngle } from './poly.js';
 import { World, Area, outsideDir } from './world.js';
 import { Physics } from './physics.js';
 import { Movement } from './movement.js';
-import { POWERUPS } from './powerups.js';
+import { Powers } from './powerups.js';
 import { scene, makeCube, lin, buildBaseplate } from './scene.js';
 import { ghost, lane, updateGhost, updateLane } from './guides.js';
 import { fx, dustRing, flash, sliceFx, updateFx, vanish } from './fx.js';
@@ -26,7 +26,7 @@ const Y_AXIS = new THREE.Vector3(0, 1, 0);
 export function hoverBaseY() { return World.bounds.topY + 1 + CFG.move.hoverGap; }
 
 export function spawn(baseOverride = null) {
-  const base = baseOverride || Poly.generate();
+  const base = baseOverride || S.tileQueue.shift() || Poly.generate();
   const stances = stancesOf(base);
   // arrive in the flattest resting side (random facing), or as generated
   const q0 = baseOverride ? new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2)
@@ -300,21 +300,15 @@ function addMeter(pts, text, kind) {
   toast(text, kind);
   if (!(pts > 0)) return;
   const max = Math.max(1, CFG.meter.max | 0);
-  S.meter += pts;
+  const wasReady = S.meter >= max;
+  S.meter = Math.min(max, S.meter + pts);
   meterEl.classList.remove('bump'); void meterEl.offsetWidth; meterEl.classList.add('bump');
-  if (S.meter >= max) {
-    S.meter = 0;
-    const reward = CFG.meter.reward;
-    S.inv[reward] = (S.inv[reward] || 0) + 1;
-    celebrate();
-  }
+  if (S.meter >= max && !wasReady) celebrate();
 }
 
 
 export function usePower(kind) {
-  if (!(S.inv[kind] > 0)) return;
-  S.inv[kind]--;
-  S.active[kind] = (S.active[kind] || 0) + POWERUPS[kind].charges();
+  if (!Powers.activate(kind)) return;
   ghost.sig = '';
   AudioFX.tick();
   updateHUD();
@@ -328,7 +322,7 @@ function updatePiece(dt) {
   if (p.anim) { p.anim.t += dt; if (p.anim.t >= p.anim.dur) p.anim = null; }
   const { Q, V } = visState(p);
   p.body.quaternion.copy(Q); p.body.position.copy(V);
-  Movement.update(p, dt);
+  Movement.update(p, dt * (S.active.slow > 0 ? .5 : 1));
   const [x, z] = Movement.xz(p);
   p.nudge.multiplyScalar(Math.exp(-18 * dt));
   p.hoverY += (hoverBaseY() - p.hoverY) * (1 - Math.exp(-6 * dt));
@@ -370,6 +364,7 @@ function updateFalling(dt) {
 
 
 export function reset(keepTutorial = false) {
+  Powers.reset();
   S.screen = '';
   document.querySelector('.hud-top').inert = false;
   Contract.clear();
@@ -379,10 +374,12 @@ export function reset(keepTutorial = false) {
   if (S.piece) { scene.remove(S.piece.root); S.piece.mat.dispose(); }
   for (const b of S.dropping) { scene.remove(b.root); b.mat.dispose(); }
   for (const t of S.trims) { scene.remove(t.b.root); t.b.mat.dispose(); }
-  Object.assign(S, { phase: 'wait', piece: null, waitT: 0.3, meter: 0, inv: { shadow: 0 }, active: { shadow: 0 },
+  Object.assign(S, { phase: 'wait', piece: null, waitT: 0.3, meter: 0, inv: { shadow: 0 }, active: { shadow: 0, slow: 0, view: 0 }, tileQueue: [],
     placed: 0, fell: 0, perfects: 0, pieces: [], falling: [], cubes: 0, box: freshBox(), endT: 0, dropping: [], trims: [], pending: 0, queuedDrop: false, predicted: 0,
     strikes: 0, paused: false, celebrateUntil: 0 });
   pauseEl.hidden = true;
+  document.getElementById('sheet').hidden = true;
+  meterEl.classList.remove('full','bump');
   endEl.hidden = true; controlsEl.hidden = false;
   const seed = CFG.seed ? CFG.seed : (Math.random() * 2 ** 31) | 0;
   setSeed(seed); S.seed = seed;
@@ -406,6 +403,9 @@ export function advanceClock(dt) { clock += dt; }
 
 export function step(dt) {
   if (S.screen) return;
+  if (S.phase === 'finishing') { Contract.tick(dt); Cam.update(dt); return; }
+  if (S.phase === 'over') { Cam.update(dt); return; }
+  Powers.tick(dt); Powers.update();
   if (Tutorial.mode === 'overview' || Tutorial.mode === 'complete') { Cam.update(dt); return; }
   if (Tutorial.mode === 'challenge') {
     if (S.phase === 'aim') updatePiece(dt);
@@ -422,7 +422,7 @@ export function step(dt) {
     const outSoon = lim > 0 && S.strikes + S.predicted >= lim;   // the piece in flight is a known final strike
     const settled = S.falling.length === 0 && S.pending === 0;
     if (out || used() >= runTotal()) {       // out of strikes or pieces: end once everything has settled
-      if (settled) { S.endT += dt; if (S.endT > 0.6) endRun(out ? 'strikes' : 'complete'); }
+      if (settled) { S.endT += dt; if (S.endT > 0.6) { endRun(out ? 'strikes' : 'complete'); updateGhost(clock); updateLane(clock); return; } }
     } else if (!outSoon && S.waitT <= 0) spawn();
   }
   if (S.phase === 'aim') updatePiece(dt);
@@ -431,6 +431,7 @@ export function step(dt) {
   if (S.queuedDrop && S.pending === 0) { S.queuedDrop = false; place(); }
   updateFalling(dt);
   updateFx(dt);
+  if (Contract.checkCompletion()) endRun('complete');
   updateGhost(clock);
   updateLane(clock);
   Cam.update(dt);
